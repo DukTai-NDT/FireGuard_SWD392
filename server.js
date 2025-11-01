@@ -2,6 +2,7 @@
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
+const redis = require("./config/redisConfig");
 const app = express();
 
 app.use(express.json());
@@ -70,6 +71,15 @@ sequelize
   .authenticate()
   .then(() => {
     console.log("Connected to PostgreSQL successfully");
+    return sequelize.sync();
+  })
+  .then(async () => {
+    try {
+      const pong = await redis.ping();
+      if (pong === "PONG") console.log("Redis connection: OK");
+    } catch (e) {
+      console.error("Redis connection: FAILED -", e.message);
+    }
     return sequelize.sync();
   })
   .then(() => {
