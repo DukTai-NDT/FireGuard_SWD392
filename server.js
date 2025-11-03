@@ -1,13 +1,17 @@
-// server.js (fileguard - tối giản theo mẫu của bạn)
+// server.js (FileGuard Real-time Fire Detection)
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
-const redis = require("./config/redisConfig");
-const app = express();
+//const redis = require("./config/redisConfig");
+const { analyzeData } = require("./src/controllers/dataProcessing");
+const { detectFire } = require("./src/controllers/fireDetection");
 
+const app = express();
 app.use(express.json());
 
-// Allow CORS (giữ nguyên như mẫu)
+
+//  CORS middleware 
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader(
@@ -21,10 +25,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Giữ nguyên đoạn “fix body” của bạn
+
+//  Fix body 
+
 app.use((req, res, next) => {
   const ct = (req.headers["content-type"] || "").toLowerCase();
-
   if (Buffer.isBuffer(req.body)) {
     const text = req.body.toString("utf8");
     if (ct.includes("application/json")) {
@@ -44,7 +49,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes (tối giản, đúng dự án fileguard)
+
+//  Routes (core của hệ thống FileGuard)
+
 app.use("/api/ingest", require("./src/routes/ingestRoutes"));
 app.use("/api/zones", require("./src/routes/zonesRoutes"));
 app.use("/api/sensors", require("./src/routes/sensorsRoutes"));
@@ -52,7 +59,15 @@ app.use("/api/events", require("./src/routes/eventsRoutes"));
 app.use("/api/readings", require("./src/routes/readingsRoutes"));
 app.use("/api/alarms", require("./src/routes/alarmsRoutes"));
 
-// Error handling middleware (y như mẫu)
+
+//  UC04 + UC06 (Data & Fire Detection)
+
+app.post("/api/data/analyze", analyzeData);
+app.post("/api/fire/detect", detectFire);
+
+
+//  Error handling
+
 app.use((error, req, res, next) => {
   const status = error.statusCode || 500;
   res.status(status).json({
@@ -67,26 +82,28 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 8090;
 
+
+// Database & Redis bootstrap
+
 sequelize
   .authenticate()
   .then(() => {
-    console.log("Connected to PostgreSQL successfully");
+    console.log("✅ Connected to PostgreSQL successfully");
     return sequelize.sync();
   })
-  .then(async () => {
-    try {
-      const pong = await redis.ping();
-      if (pong === "PONG") console.log("Redis connection: OK");
-    } catch (e) {
-      console.error("Redis connection: FAILED -", e.message);
-    }
-    return sequelize.sync();
-  })
+  // .then(async () => {
+  //   try {
+  //     const pong = await redis.ping();
+  //     if (pong === "PONG") console.log("✅ Redis connection: OK");
+  //   } catch (e) {
+  //     console.error("❌ Redis connection failed:", e.message);
+  //   }
+  // })
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`🚀 FileGuard server running on http://localhost:${PORT}`);
     });
   })
   .catch((err) => {
-    console.error("Database connection error:", err);
+    console.error("❌ Database connection error:", err);
   });
