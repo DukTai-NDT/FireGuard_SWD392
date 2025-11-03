@@ -6,9 +6,9 @@ module.exports = (sequelize, DataTypes) => {
     {
       id: {
         type: DataTypes.BIGINT,
-        allowNull: false,
         primaryKey: true,
-        autoIncrementIdentity: true,
+        autoIncrement: true, // ✅ THÊM DÒNG NÀY
+        allowNull: false,
       },
       sensor_id: { type: DataTypes.UUID, allowNull: false, primaryKey: true },
       reading_ts: { type: DataTypes.DATE, allowNull: false, primaryKey: true },
