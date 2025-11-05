@@ -2,7 +2,7 @@
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
-const redis = require("./config/redisConfig");
+// const redis = require("./config/redisConfig");
 const app = express();
 
 app.use(express.json());
@@ -39,7 +39,7 @@ app.use((req, res, next) => {
   } else if (typeof req.body === "string" && ct.includes("application/json")) {
     try {
       req.body = JSON.parse(req.body);
-    } catch {}
+    } catch { }
   }
   next();
 });
@@ -73,15 +73,15 @@ sequelize
     console.log("Connected to PostgreSQL successfully");
     return sequelize.sync();
   })
-  .then(async () => {
-    try {
-      const pong = await redis.ping();
-      if (pong === "PONG") console.log("Redis connection: OK");
-    } catch (e) {
-      console.error("Redis connection: FAILED -", e.message);
-    }
-    return sequelize.sync();
-  })
+  // .then(async () => {
+  //   try {
+  //     const pong = await redis.ping();
+  //     if (pong === "PONG") console.log("Redis connection: OK");
+  //   } catch (e) {
+  //     console.error("Redis connection: FAILED -", e.message);
+  //   }
+  //   return sequelize.sync();
+  // })
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
