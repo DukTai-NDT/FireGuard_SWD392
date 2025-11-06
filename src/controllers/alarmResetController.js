@@ -55,3 +55,31 @@ exports.autoResetAlarms = async (req, res, next) => {
         next(error);
     }
 };
+
+exports.getAllAlarms = async (req, res, next) => {
+    try {
+        const alarms = await AlarmTrigger.findAll({
+            attributes: [
+                "id",
+                "event_id",
+                "zone_id",
+                "status",
+                "triggered_at",
+                "deactivated_at",
+                "details",
+            ],
+            order: [["triggered_at", "DESC"]],
+        });
+
+        return res.json({
+            message: "All alarms fetched successfully",
+            data: alarms,
+        });
+    } catch (error) {
+        console.error("Error fetching alarms:", error);
+        return res.status(500).json({
+            message: "Internal Server Error",
+            error: error.message,
+        });
+    }
+};
