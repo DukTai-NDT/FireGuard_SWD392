@@ -1,139 +1,171 @@
-// src/controllers/fireDetection.js
+// src/controllers/fireEventController.js
 const {
-  Zone,
-  Sensor,
-  DetectionPolicy,
-  SensorReading,
   FireEvent,
-  AlarmTrigger,
+  DetectionPolicy,
+  Sensor,
+  SensorReading,
   SystemLog,
 } = require("../models");
 const { Op } = require("sequelize");
 const { v4: uuidv4 } = require("uuid");
+const { sequelize } = require("../models");
+// const redis = require("../services/redisClient");
 
-exports.detectFire = async (req, res, next) => {
+// UC-06: Confirm suspected fire event
+exports.confirmFireEvent = async (req, res, next) => {
+  const t = await sequelize.transaction();
   try {
-    const { zone_id } = req.body;
-    if (!zone_id)
-      return res.status(400).json({ error: "zone_id is required" });
+    const { id } = req.params;
 
-    // 1️ Lấy sensors đang hoạt động trong zone
-    const sensors = await Sensor.findAll({
-      where: { zone_id, is_active: true },
+    // 1️⃣ Tìm event ở trạng thái "suspected"
+    const event = await FireEvent.findOne({
+      where: { id, state: "suspected" },
+      transaction: t,
     });
-    if (sensors.length === 0)
-      return res.status(404).json({ error: "No active sensors in zone" });
 
-    // 2️ Lấy rule global (hoặc dùng mặc định)
-    const policy = await DetectionPolicy.findOne({ where: { scope: "global" } });
-    const rule = policy?.rules || {
-      smoke_ppm: 70,
-      temp_c: 60,
-      co2_ppm: 1200,
-      need_concurrence: 2,
-    };
-
-    // 3️ Lấy reading mới nhất cho từng sensor
-    const readings = [];
-    for (const s of sensors) {
-      const latest = await SensorReading.findOne({
-        where: { sensor_id: s.id },
-        order: [["reading_ts", "DESC"]],
+    if (!event) {
+      await SystemLog.create({
+        level: "warn",
+        message: "Cannot confirm event: not found or already confirmed",
+        ctx: { eventId: id },
       });
-      if (latest) readings.push({ sensor: s, reading: latest });
+      if (!t.finished) await t.rollback(); // ✅ tránh rollback khi transaction đã commit
+      return res.status(409).json({ error: "cannot_confirm" });
     }
 
-    if (readings.length === 0)
-      return res.status(404).json({ error: "No sensor readings found in this zone" });
+    // 2️⃣ Lấy detection policy
+    const policy =
+      (await DetectionPolicy.findOne({
+        where: { zone_id: event.zone_id },
+        transaction: t,
+      })) ||
+      (await DetectionPolicy.findOne({
+        where: { scope: "global" },
+        transaction: t,
+      }));
 
-    // 4️ Phát hiện bất thường
-    let abnormalCount = 0;
-    const evidence = {};
+    const confirm_window_ms = policy?.rules?.confirm_window_ms || 20000;
+    const confirm_min_sensors = policy?.rules?.confirm_min_sensors || 2;
+    const require_distinct_types =
+      policy?.rules?.require_distinct_types ?? false;
 
-    for (const { sensor, reading } of readings) {
-      const limit = { ...rule, ...(sensor.thresholds || {}) };
+    // 3️⃣ Lấy readings trong khung thời gian xác nhận
+    const windowStart = new Date(Date.now() - confirm_window_ms);
+    const readings = await SensorReading.findAll({
+      where: { reading_ts: { [Op.gte]: windowStart } },
+      include: [
+        {
+          model: Sensor,
+          where: { zone_id: event.zone_id },
+        },
+      ],
+      transaction: t,
+    });
+
+    if (!readings.length) {
+      await SystemLog.create({
+        level: "warn",
+        message: "Insufficient evidence: no readings in window",
+        ctx: { event_id: id, zone_id: event.zone_id },
+      });
+      if (!t.finished) await t.rollback();
+      return res.status(409).json({ error: "insufficient_evidence" });
+    }
+
+    // 4️⃣ Kiểm tra cảm biến vượt ngưỡng
+    const exceeded = [];
+    for (const r of readings) {
+      const limit = {
+        ...policy?.rules,
+        ...(r.Sensor.thresholds || {}),
+      };
+
       const abnormal =
-        (reading.smoke_ppm && reading.smoke_ppm >= limit.smoke_ppm) ||
-        (reading.temp_c && reading.temp_c >= limit.temp_c) ||
-        (reading.co2_ppm && reading.co2_ppm >= limit.co2_ppm);
+        (r.smoke_ppm && r.smoke_ppm >= limit.smoke_ppm) ||
+        (r.temp_c && r.temp_c >= limit.temp_c) ||
+        (r.co2_ppm && r.co2_ppm >= limit.co2_ppm);
 
       if (abnormal) {
-        abnormalCount++;
-        evidence[sensor.serial_number] = {
-          smoke_ppm: reading.smoke_ppm,
-          temp_c: reading.temp_c,
-          co2_ppm: reading.co2_ppm,
-        };
+        exceeded.push({
+          sensor_type: r.Sensor.type,
+          serial_number: r.Sensor.serial_number,
+          smoke_ppm: r.smoke_ppm,
+          temp_c: r.temp_c,
+          co2_ppm: r.co2_ppm,
+        });
       }
     }
 
-    // 5️ Quyết định trạng thái
-    let state = "cleared";
-    if (abnormalCount >= rule.need_concurrence) state = "confirmed";
-    else if (abnormalCount > 0) state = "suspected";
+    const types = new Set(exceeded.map((x) => x.sensor_type));
+    const enough = require_distinct_types
+      ? types.size >= 2
+      : exceeded.length >= confirm_min_sensors;
 
-   // 6️ Tạo event mới (đảm bảo đầy đủ các cột thời gian)
-const now = new Date();
-
-const eventData = {
-  id: uuidv4(),
-  zone_id,
-  state,
-  correlation: evidence,
-  severity: Math.min(abnormalCount, 5),
-  suspected_at: now,
-  confirmed_at: state === "confirmed" ? now : null,
-  cleared_at: state === "cleared" ? now : null,
-  created_at: now,
-  updated_at: now,
-};
-
-// ✅ Ép Sequelize include tất cả cột, kể cả null
-const newEvent = await FireEvent.create(eventData, {
-  fields: [
-    "id",
-    "zone_id",
-    "state",
-    "correlation",
-    "severity",
-    "suspected_at",
-    "confirmed_at",
-    "cleared_at",
-    "created_at",
-    "updated_at",
-  ],
-});
-
-    // 7️⃣ Nếu confirmed → tạo alarm active
-    if (state === "confirmed") {
-      await AlarmTrigger.create({
-        event_id: newEvent.id,
-        zone_id,
-        status: "active",
-        triggered_at: new Date(),
-        details: { source: "auto" },
-        created_at: new Date(),
+    if (!enough) {
+      await SystemLog.create({
+        level: "warn",
+        message: "Not enough distinct abnormal sensors to confirm",
+        ctx: { event_id: id, zone_id: event.zone_id },
       });
+      if (!t.finished) await t.rollback();
+      return res.status(409).json({ error: "insufficient_evidence" });
     }
 
-    // 8️⃣ Ghi log hệ thống
-    await SystemLog.create({
-      level: "info",
-      message: "Fire detection run complete",
-      ctx: { zone_id, state, abnormalCount },
-      event_id: newEvent.id,
-    });
+    // 5️⃣ Cập nhật event sang "confirmed"
+    const now = new Date();
+    await FireEvent.update(
+      {
+        state: "confirmed",
+        confirmed_at: now,
+        correlation: { evidence: exceeded },
+        updated_at: now,
+      },
+      { where: { id, state: "suspected" }, transaction: t }
+    );
 
-    // 9️⃣ Phản hồi kết quả
+    await SystemLog.create(
+      {
+        level: "info",
+        message: "Fire event confirmed",
+        ctx: {
+          event_id: id,
+          zone_id: event.zone_id,
+          evidence_count: exceeded.length,
+        },
+      },
+      { transaction: t }
+    );
+
+    await t.commit();
+
+    // (Tùy chọn) Publish Redis event nếu cần
+    // if (redis) {
+    //   await redis.publish(
+    //     "fire_events",
+    //     JSON.stringify({
+    //       type: "fire_event_state_changed",
+    //       state: "confirmed",
+    //       fireEventId: id,
+    //       zone_id: event.zone_id,
+    //       at: now.toISOString(),
+    //     })
+    //   );
+    // }
+
     res.json({
-      zone_id,
-      fire_event_id: newEvent.id,
-      state,
-      abnormal_sensors: abnormalCount,
-      correlation: evidence,
+      ok: true,
+      id,
+      state: "confirmed",
+      confirmed_at: now,
     });
   } catch (err) {
-    console.error("DetectFire error:", err);
+    if (!t.finished) await t.rollback(); // ✅ chỉ rollback khi chưa commit
+    console.error("ConfirmFireEvent error:", err);
+    await SystemLog.create({
+      level: "error",
+      message: "Error confirming fire event",
+      ctx: { error: err.message },
+    });
     next(err);
   }
 };
