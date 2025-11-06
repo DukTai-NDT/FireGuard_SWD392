@@ -2,15 +2,14 @@
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
-//const redis = require("./config/redisConfig");
+const redis = require("./config/redisConfig");
 const { analyzeData } = require("./src/controllers/dataProcessing");
-const { detectFire } = require("./src/controllers/fireDetection");
+const { confirmFireEvent } = require("./src/controllers/fireDetection");
 
 const app = express();
 app.use(express.json());
 
-
-//  CORS middleware 
+//  CORS middleware
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -25,8 +24,7 @@ app.use((req, res, next) => {
   next();
 });
 
-
-//  Fix body 
+//  Fix body
 
 app.use((req, res, next) => {
   const ct = (req.headers["content-type"] || "").toLowerCase();
@@ -49,7 +47,6 @@ app.use((req, res, next) => {
   next();
 });
 
-
 //  Routes (core của hệ thống FileGuard)
 
 app.use("/api/ingest", require("./src/routes/ingestRoutes"));
@@ -59,12 +56,10 @@ app.use("/api/events", require("./src/routes/eventsRoutes"));
 app.use("/api/readings", require("./src/routes/readingsRoutes"));
 app.use("/api/alarms", require("./src/routes/alarmsRoutes"));
 
-
 //  UC04 + UC06 (Data & Fire Detection)
 
 app.post("/api/data/analyze", analyzeData);
-app.post("/api/fire/detect", detectFire);
-
+app.post("/api/fire/detect", confirmFireEvent);
 
 //  Error handling
 
@@ -82,7 +77,6 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 8090;
 
-
 // Database & Redis bootstrap
 
 sequelize
@@ -91,14 +85,14 @@ sequelize
     console.log("✅ Connected to PostgreSQL successfully");
     return sequelize.sync();
   })
-  // .then(async () => {
-  //   try {
-  //     const pong = await redis.ping();
-  //     if (pong === "PONG") console.log("✅ Redis connection: OK");
-  //   } catch (e) {
-  //     console.error("❌ Redis connection failed:", e.message);
-  //   }
-  // })
+  .then(async () => {
+    try {
+      const pong = await redis.ping();
+      if (pong === "PONG") console.log("✅ Redis connection: OK");
+    } catch (e) {
+      console.error("❌ Redis connection failed:", e.message);
+    }
+  })
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 FileGuard server running on http://localhost:${PORT}`);
