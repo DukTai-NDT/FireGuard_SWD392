@@ -1,0 +1,161 @@
+const {
+  FIRE_SUSPECTED,
+  FALSE_ALARM,
+  INCONSISTENT,
+} = require("../domain/eventTypes");
+const {
+  isConflicting,
+  calculateStatsByType,
+  getExceededReadings,
+} = require("../domain/correlationRules");
+const dayjs = require("dayjs");
+const { v4: uuidv4 } = require("uuid");
+const nowDayjs = dayjs();
+class CorrelationAnalyzer {
+  constructor({
+    repos,
+    buffer,
+    cooldown,
+    thresholds,
+    publisher,
+    options = {},
+  }) {
+    this.repos = repos;
+    this.buffer = buffer;
+    this.cooldown = cooldown;
+    this.thresholds = thresholds;
+    this.publisher = publisher;
+    this.windowMs = options.windowMs ?? 5000;
+    this.sensorTimeoutMs = options.sensorTimeoutMs ?? 10000;
+    this.requireDistinctTypes = options.requireDistinctTypes ?? true;
+  }
+  async process(payload) {
+    const { sensor_id, sensor_type, value } = payload;
+    const ts = payload.timestamp
+      ? new Date(payload.timestamp).getTime()
+      : Date.now();
+    // 1) save raw reading (best effort)
+    await this.repos.saveReading({ sensor_id, sensor_type, value, ts });
+    // 2) sensor lookup
+    const sensor = await this.repos.findSensor(sensor_id);
+    if (!sensor) {
+      await this.repos.warn(
+        `Nhận dữ liệu từ sensor chưa đăng ký: ${sensor_id}
+`,
+        { sensor_id, sensor_type, value }
+      );
+      return { status: "ignored", reason: "unknown_sensor" };
+    }
+    const zoneId = sensor.zone_id;
+    // 3) update buffer
+    const window = this.buffer.push(zoneId, {
+      sensor_id,
+      sensor_type,
+      value,
+      ts,
+    });
+    // 4) timeouts in window
+    const now = Date.now();
+    const timeoutSensors = new Set();
+    const activeTypes = new Set();
+    for (const r of window) {
+      if (now - r.ts > this.sensorTimeoutMs) timeoutSensors.add(r.sensor_id);
+      else activeTypes.add(r.sensor_type);
+    }
+    if (timeoutSensors.size) {
+      await this.repos.warn("Một số sensor không báo cáo kịp thời", {
+        zoneId,
+        timeoutSensors: [...timeoutSensors],
+      });
+    }
+    // 5) inconsistent data
+    if (isConflicting(window)) {
+      console.log("1");
+      const ev = await this.repos.createEvent({
+        zone_id: zoneId,
+        suspected_at: nowDayjs.toISOString(),
+        event_type: INCONSISTENT,
+        status: "confirmed",
+        correlation: { readings: window },
+      });
+      this.cooldown.mark(zoneId, INCONSISTENT, now);
+      await this.publisher.publish({
+        type: INCONSISTENT,
+        fireEventId: ev.id,
+        zone_id: zoneId,
+        at: new Date().toISOString(),
+      });
+      return { status: "inconsistent", fireEventId: ev.id };
+    }
+    // 6) stats + thresholds
+    const stats = calculateStatsByType(window);
+    const thresholds = await this.thresholds.getZoneThresholds(zoneId);
+    // 7) exceeds
+    const exceeded = getExceededReadings(window, thresholds, stats);
+    if (exceeded.length === 0) {
+      return {
+        status: "normal",
+        activeTypes: [...activeTypes],
+        windowCount: window.length,
+      };
+    }
+    const typesExceeded = new Set(exceeded.map((e) => e.sensor_type));
+    const enough = this.requireDistinctTypes
+      ? typesExceeded.size >= 2
+      : exceeded.length >= 2;
+    const canTrigger = this.cooldown.canTrigger(zoneId, now);
+    if (enough && canTrigger) {
+      console.log("2");
+      const ev = await this.repos.createEvent({
+        zone_id: zoneId,
+        suspected_at: nowDayjs.toISOString(),
+        event_type: FIRE_SUSPECTED,
+        status: "pending",
+        correlation: { detectedAt: new Date().toISOString(), exceeded, stats },
+      });
+      this.cooldown.mark(zoneId, FIRE_SUSPECTED, now);
+      await this.publisher.publish({
+        type: FIRE_SUSPECTED,
+        fireEventId: ev.id,
+        zone_id: zoneId,
+        exceeded,
+        stats,
+        at: new Date().toISOString(),
+      });
+      return {
+        status: "fire_suspected",
+        fireEventId: ev.id,
+        exceededCount: exceeded.length,
+      };
+    }
+    console.log("3");
+    const ev = await this.repos.createEvent({
+      id: uuidv4(),
+      zone_id: zoneId,
+      suspected_at: nowDayjs.toISOString(),
+      state: "suspected",
+      severity: 1,
+      correlation: {
+        reason: canTrigger ? "insufficient_correlation" : "cooldown",
+        exceeded,
+        stats,
+      },
+      summary: "FireSuspected",
+    });
+    this.cooldown.mark(zoneId, FALSE_ALARM, now);
+    await this.publisher.publish({
+      type: FALSE_ALARM,
+      fireEventId: ev.id,
+      zone_id: zoneId,
+      reason: canTrigger ? "insufficient_correlation" : "cooldown",
+      exceeded,
+      at: new Date().toISOString(),
+    });
+    return {
+      status: canTrigger ? "insufficient_exceeds" : "cooldown_active",
+      fireEventId: ev.id,
+      exceededCount: exceeded.length,
+    };
+  }
+}
+module.exports = CorrelationAnalyzer;
