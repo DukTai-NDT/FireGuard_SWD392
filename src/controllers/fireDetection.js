@@ -139,18 +139,18 @@ exports.confirmFireEvent = async (req, res, next) => {
     await t.commit();
 
     // (Tùy chọn) Publish Redis event nếu cần
-    // if (redis) {
-    //   await redis.publish(
-    //     "fire_events",
-    //     JSON.stringify({
-    //       type: "fire_event_state_changed",
-    //       state: "confirmed",
-    //       fireEventId: id,
-    //       zone_id: event.zone_id,
-    //       at: now.toISOString(),
-    //     })
-    //   );
-    // }
+    if (redis) {
+      await redis.publish(
+        "fire_events",
+        JSON.stringify({
+          type: "fire_event_state_changed",
+          state: "confirmed",
+          fireEventId: id,
+          zone_id: event.zone_id,
+          at: now.toISOString(),
+        })
+      );
+    }
 
     res.json({
       ok: true,
