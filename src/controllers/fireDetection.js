@@ -9,6 +9,9 @@ const {
 const { Op } = require("sequelize");
 const { v4: uuidv4 } = require("uuid");
 const { sequelize } = require("../models");
+const dayjs = require("dayjs");
+const redisPub = require("../../config/redisConfig"); // <-- publisher client (ioredis)
+
 // const redis = require("../services/redisClient");
 
 // UC-06: Confirm suspected fire event
@@ -44,7 +47,7 @@ exports.confirmFireEvent = async (req, res, next) => {
         transaction: t,
       }));
 
-    const confirm_window_ms = policy?.rules?.confirm_window_ms || 20000;
+    const confirm_window_ms = policy?.rules?.confirm_window_ms || 2000000;
     const confirm_min_sensors = policy?.rules?.confirm_min_sensors || 2;
     const require_distinct_types =
       policy?.rules?.require_distinct_types ?? false;
@@ -61,7 +64,6 @@ exports.confirmFireEvent = async (req, res, next) => {
       ],
       transaction: t,
     });
-
     if (!readings.length) {
       await SystemLog.create({
         level: "warn",
@@ -71,7 +73,6 @@ exports.confirmFireEvent = async (req, res, next) => {
       if (!t.finished) await t.rollback();
       return res.status(409).json({ error: "insufficient_evidence" });
     }
-
     // 4️⃣ Kiểm tra cảm biến vượt ngưỡng
     const exceeded = [];
     for (const r of readings) {
@@ -100,7 +101,6 @@ exports.confirmFireEvent = async (req, res, next) => {
     const enough = require_distinct_types
       ? types.size >= 2
       : exceeded.length >= confirm_min_sensors;
-
     if (!enough) {
       await SystemLog.create({
         level: "warn",
@@ -110,7 +110,6 @@ exports.confirmFireEvent = async (req, res, next) => {
       if (!t.finished) await t.rollback();
       return res.status(409).json({ error: "insufficient_evidence" });
     }
-
     // 5️⃣ Cập nhật event sang "confirmed"
     const now = new Date();
     await FireEvent.update(
@@ -138,9 +137,9 @@ exports.confirmFireEvent = async (req, res, next) => {
 
     await t.commit();
 
-    // (Tùy chọn) Publish Redis event nếu cần
-    if (redis) {
-      await redis.publish(
+    // 6) PUBLISH cho UC-07 (kênh fire_events)
+    try {
+      await redisPub.publish(
         "fire_events",
         JSON.stringify({
           type: "fire_event_state_changed",
@@ -150,8 +149,13 @@ exports.confirmFireEvent = async (req, res, next) => {
           at: now.toISOString(),
         })
       );
+    } catch (e) {
+      await SystemLog.create({
+        level: "warn",
+        message: "Publish fire_events failed after confirm",
+        ctx: { event_id: id, error: e?.message },
+      });
     }
-
     res.json({
       ok: true,
       id,

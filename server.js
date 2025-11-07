@@ -76,7 +76,7 @@ app.use("/api/map", require("./src/routes/mapRoutes"));
 //  UC04 + UC06 (Data & Fire Detection)
 
 app.post("/api/data/analyze", analyzeData);
-app.post("/api/fire/detect", confirmFireEvent);
+app.post("/api/fire/detect/:id", confirmFireEvent);
 
 //  Error handling
 app.use("/api/logs", require("./src/routes/logsRoutes"));

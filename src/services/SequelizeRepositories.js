@@ -16,12 +16,25 @@ class SequelizeRepositories {
     return this.Sensor.findByPk(sensor_id);
   }
 
-  async saveReading({ sensor_id, sensor_type, value, ts }) {
+  async saveReading({
+    sensor_id,
+    reading_ts,
+    smoke_ppm,
+    temp_c,
+    co2_ppm,
+    payload,
+    quality_score,
+    ts,
+  }) {
     try {
       await this.SensorReading.create({
         sensor_id,
-        sensor_type,
-        value,
+        reading_ts,
+        smoke_ppm,
+        temp_c,
+        co2_ppm,
+        payload,
+        quality_score,
         timestamp: new Date(ts),
       });
     } catch {
