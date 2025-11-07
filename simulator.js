@@ -30,13 +30,13 @@ async function sendMockReading(sensor) {
     // Sensor khói chỉ báo khói
     switch (sensor.type) {
         case 'smoke':
-            mockData.smoke_ppm = getRandomValue(10, 50); // Mức bình thường
+            mockData.smoke_ppm = getRandomValue(80, 150); // Mức bình thường(10, 50)
             break;
         case 'co2':
             mockData.co2_ppm = getRandomValue(400, 1000); // Mức bình thường
             break;
         case 'temperature':
-            mockData.temp_c = getRandomValue(20, 30); // Mức bình thường
+            mockData.temp_c = getRandomValue(70, 80); // Mức bình thường ((20, 30))
             break;
     }
 
@@ -62,7 +62,7 @@ async function sendMockReading(sensor) {
 }
 
 // === 3. Vòng lặp chính (chạy cho cả 3 sensor) ===
-const intervalInSeconds = 5;
+const intervalInSeconds = 20;
 
 console.log(`Bắt đầu giả lập: Gửi dữ liệu mỗi ${intervalInSeconds} giây cho ${SENSORS_TO_SIMULATE.length} sensors.`);
 console.log('--------------------------------------------------');

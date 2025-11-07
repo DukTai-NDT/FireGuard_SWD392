@@ -1,12 +1,11 @@
 const { Op } = require('sequelize');
-// (Kiểm tra lại tên file cho chính xác)
-const {  // <-- Thêm từ file kia
-    DetectionPolicy, // <-- Bổ sung
-    SystemLog,       // <-- Bổ sung
-    FireEvent,       // <-- Bổ sung
-    Sensor           // <-- Bổ sung
+const {
+    DetectionPolicy,
+    SystemLog,
+    FireEvent,
+    Sensor,
+    AlarmTrigger // <-- SỬA 1: Bổ sung model AlarmTrigger
 } = require('../models/index');
-// === KẾT THÚC SỬA ===
 
 
 /**
@@ -75,13 +74,17 @@ async function processReading(reading) {
             await SystemLog.create({
                 level: 'warn', // <-- MỨC WARN
                 message: `New fire event created (suspected)`,
-                ctx: { reason: `Sensor ${sensor.serial_number} breached threshold`, ...breachDetails },
+                ctx: { 
+                    reason: `Sensor ${sensor.serial_number} breached threshold`, 
+                    serial_number: sensor.serial_number, // <-- SỬA 3: Thêm serial_number
+                    ...breachDetails 
+                },
                 event_id: activeEvent.id,
                 sensor_id: sensor_id
             });
 
         } else if (activeEvent.state === 'suspected') {
-            // == TRƯỜNG HỢP 2: ĐÃ 'SUSPECTED', NÂNG CẤP LÊN 'CONFIRMED' (Tạo log 'error') ==
+            // == TRƯỜG HỢP 2: ĐÃ 'SUSPECTED', NÂNG CẤP LÊN 'CONFIRMED' ==
             // (Giả định rằng 'need_concurrence: 2' đã được đáp ứng)
             
             console.log("Nâng cấp sự cố lên (confirmed)...");
@@ -96,16 +99,42 @@ async function processReading(reading) {
 
             // GHI LOG 'ERROR' (UC14) CHO VIỆC XÁC NHẬN
             await SystemLog.create({
-                level: 'error', // <-- MỨC ERROR (MỤC TIÊU CỦA BẠN)
+                level: 'error', // <-- MỨC ERROR 
                 message: 'Fire event confirmed by correlation',
-                ctx: { reason: `Second sensor breach detected`, ...breachDetails },
+                ctx: { 
+                    reason: `Second sensor breach detected`, 
+                    serial_number: sensor.serial_number, // <-- SỬA 3: Thêm serial_number
+                    ...breachDetails 
+                },
                 event_id: activeEvent.id,
                 sensor_id: sensor_id
             });
 
-            // (Nâng cao): Đây là nơi bạn sẽ gọi logic "kích hoạt chuông báo"
-            // ví dụ: await AlarmService.activate(activeEvent.zone_id);
-            // và sau đó ghi thêm 1 log 'error' nữa: "Alarm activated"
+            
+            // === SỬA 2: THÊM LOGIC KÍCH HOẠT CHUÔNG BÁO (UC14) ===
+            console.log("Kích hoạt chuông báo (AlarmTrigger)...");
+
+            // 2a. Tạo bản ghi AlarmTrigger (để bật chuông)
+            const newAlarm = await AlarmTrigger.create({
+                event_id: activeEvent.id,
+                zone_id: activeEvent.zone_id,
+                status: 'active',
+                details: { trigger: `Correlation by ${sensor.serial_number}` }
+            });
+
+            // 2b. Ghi log "Chuông reo" (để FE hiển thị)
+            await SystemLog.create({
+                level: 'error', // Cấp độ cao nhất
+                message: `ALARM ACTIVATED for zone ${activeEvent.zone_id}`,
+                ctx: { 
+                    reason: `Event confirmed by 2nd sensor`,
+                    serial_number: sensor.serial_number, // <-- SỬA 3
+                    alarm_id: newAlarm.id 
+                },
+                event_id: activeEvent.id,
+                sensor_id: sensor_id
+            });
+            // === KẾT THÚC SỬA 2 ===
         }
         // (Nếu sự cố đã 'confirmed' rồi thì không cần làm gì thêm, chỉ ghi log 'Rule Hit' bên dưới)
 
@@ -115,7 +144,10 @@ async function processReading(reading) {
         await SystemLog.create({
             level: 'warn',
             message: `High ${breachDetails.type} reading detected`,
-            ctx: breachDetails,
+            ctx: {
+                ...breachDetails,
+                serial_number: sensor.serial_number // <-- SỬA 3: Thêm serial_number
+            },
             event_id: activeEvent.id,
             sensor_id: sensor_id
         });

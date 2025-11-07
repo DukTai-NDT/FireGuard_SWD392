@@ -5,6 +5,13 @@ const { sequelize } = require("./src/models");
 // const redis = require("./config/redisConfig");
 const app = express();
 const cors = require('cors');
+
+
+app.use(cors({
+    origin: '*', // Cho phép tất cả (an toàn cho 127.0.0.1:5500)
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // Phải cho phép PUT
+}));
+
 app.use(express.json());
 
 // Allow CORS (giữ nguyên như mẫu)
@@ -52,7 +59,7 @@ app.use("/api/events", require("./src/routes/eventsRoutes"));
 app.use("/api/readings", require("./src/routes/readingsRoutes"));
 app.use("/api/alarms", require("./src/routes/alarmsRoutes"));
 app.use('/api/logs', require("./src/routes/logsRoutes"));
-app.use('/api/timeline', require("./src/routes/timeline"));
+app.use('/api/timeline', require("./src/routes/timeline"))
 // Error handling middleware (y như mẫu)
 app.use((error, req, res, next) => {
   const status = error.statusCode || 500;
@@ -94,9 +101,4 @@ sequelize
   .catch((err) => {
     console.error("Database connection error:", err);
   });
-  app.use(cors({
-    origin: '*' // Cho phép tất cả
-    // Hoặc an toàn hơn:
-    // origin: 'http://localhost:3000' // Nếu bạn chạy FE trên một server khác
-    // origin: 'file://' // Đôi khi không hoạt động, '*' là dễ nhất để test
-}));
+ 
