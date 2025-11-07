@@ -4,6 +4,7 @@ const sequelize = require("../../config/dbConfig");
 
 // import per-file
 const Zone = require("./zones")(sequelize, Sequelize.DataTypes);
+
 const Sensor = require("./sensors")(sequelize, Sequelize.DataTypes);
 const DetectionPolicy = require("./detection_policies")(
   sequelize,

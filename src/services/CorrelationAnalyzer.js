@@ -35,9 +35,35 @@ class CorrelationAnalyzer {
       ? new Date(payload.timestamp).getTime()
       : Date.now();
 
-    // 1) Lưu reading (best-effort)
-    await this.repos.saveReading({ sensor_id, sensor_type, value, ts });
+    let co2_ppm = null;
+    let temp_c = null;
+    let smoke_ppm = null;
 
+    if (sensor_type === "co2") {
+      co2_ppm = value;
+    } else if (sensor_type === "temperature") {
+      temp_c = value;
+    } else if (sensor_type === "smoke") {
+      smoke_ppm = value;
+    }
+
+    const payloadCreate = {
+      status: "danger",
+    };
+
+    const reading_ts = dayjs().toISOString();
+    const quality_score = 100;
+
+    const saveReading = await this.repos.saveReading({
+      sensor_id,
+      reading_ts,
+      smoke_ppm,
+      temp_c,
+      co2_ppm,
+      payload: payloadCreate,
+      quality_score,
+      ts,
+    });
     // 2) Kiểm tra sensor hợp lệ
     const sensor = await this.repos.findSensor(sensor_id);
     if (!sensor) {
