@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FireGuard – Sensor Map</title>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111823;
+        --muted: #1a2432;
+        --accent: #2e90fa;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --alarm: #ef4444;
+        --fault: #8b5cf6;
+        --text: #e5eefb;
+        --sub: #95a3b9;
+        --chip: #0f1723;
+        --radius: 16px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #0a0f16, #0b1522 60%, #0b0f14);
+        color: var(--text);
+        font: 14px/1.6 system-ui, Segoe UI, Roboto, Helvetica, Arial;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid #1f2a3d;
+        background: linear-gradient(180deg, #111b2a, #0e1623);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        background: radial-gradient(
+          circle at 30% 30%,
+          #2e90fa,
+          #0ea5e9 60%,
+          #0b1322 61%
+        );
+      }
+      .chip {
+        background: #0f1723;
+        border: 1px solid #1e2a3a;
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: #c9d7ef;
+      }
+      .wrap {
+        display: grid;
+        grid-template-columns: 260px 1fr 320px;
+        gap: 12px;
+        padding: 12px;
+        height: calc(100vh - 64px);
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid #1a2435;
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .panel h2 {
+        margin: 0;
+        padding: 12px 14px;
+        border-bottom: 1px solid #1f2a3d;
+        text-transform: uppercase;
+        font-size: 13px;
+        color: #b6c6e0;
+      }
+      .panel .content {
+        padding: 12px;
+      }
+      .select {
+        width: 100%;
+        background: #0e1726;
+        border: 1px solid #273248;
+        border-radius: 10px;
+        color: #dbe7ff;
+        padding: 10px;
+      }
+      .stage {
+        position: relative;
+        background: #0b111b;
+        border: 1px solid #1a2435;
+        border-radius: 14px;
+        width: 100%;
+        height: 100%;
+        min-height: 360px;
+        overflow: hidden;
+      }
+      .floor {
+        position: absolute;
+        inset: 0;
+        background: #0a0f16;
+        z-index: 1;
+      }
+      .floor-plan {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+      }
+      .room {
+        position: absolute;
+        border: 2px solid #1e3a5f;
+        background: rgba(20, 40, 70, 0.3);
+        box-sizing: border-box;
+      }
+      .room-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #5a8fc7;
+        font-size: 11px;
+        font-weight: 600;
+        text-align: center;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      .corridor {
+        position: absolute;
+        background: rgba(30, 50, 80, 0.2);
+        border: 1px solid #2a4a6a;
+      }
+      .entrance {
+        position: absolute;
+        background: #1e4d2b;
+        border: 2px solid #2d7a3f;
+      }
+      .grid-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.3;
+      }
+      .grid-line {
+        position: absolute;
+        background: #2e90fa;
+      }
+      .grid-line.h {
+        width: 100%;
+        height: 1px;
+      }
+      .grid-line.v {
+        height: 100%;
+        width: 1px;
+      }
+      .grid-label {
+        position: absolute;
+        color: #5a8fc7;
+        font-size: 10px;
+        font-family: monospace;
+        pointer-events: none;
+        z-index: 6;
+      }
+      .exit-path {
+        position: absolute;
+        border: 2px dashed #22c55e;
+        background: rgba(34, 197, 94, 0.1);
+        pointer-events: none;
+        z-index: 2;
+      }
+      .exit-arrow {
+        position: absolute;
+        color: #22c55e;
+        font-size: 20px;
+        font-weight: bold;
+        z-index: 2;
+        pointer-events: none;
+        text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+      }
+      .sensor-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        margin: 4px 0;
+        background: #0e1726;
+        border-radius: 6px;
+        border-left: 3px solid;
+        cursor: pointer;
+      }
+      .sensor-badge:hover {
+        background: #1a2432;
+      }
+      .sensor-badge.ok {
+        border-color: #22c55e;
+      }
+      .sensor-badge.alarm {
+        border-color: #ef4444;
+      }
+      .event-item {
+        padding: 6px 8px;
+        margin: 4px 0;
+        background: #0e1726;
+        border-radius: 6px;
+        border-left: 3px solid #2e90fa;
+      }
+      .event-time {
+        color: #7a8fa3;
+        font-size: 10px;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid #1a2435;
+      }
+      .stat-label {
+        color: #95a3b9;
+      }
+      .stat-value {
+        font-weight: 600;
+        color: #e5eefb;
+      }
+      .connection-banner {
+        position: fixed;
+        top: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #f59e0b;
+        color: #000;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        display: none;
+      }
+      .connection-banner.show {
+        display: block;
+        animation: slideDown 0.3s ease;
+      }
+      @keyframes slideDown {
+        from {
+          transform: translateX(-50%) translateY(-20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(-50%) translateY(0);
+          opacity: 1;
+        }
+      }
+      .zoom-controls {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 10;
+      }
+      .zoom-btn {
+        width: 36px;
+        height: 36px;
+        background: #1a2432;
+        border: 1px solid #2e4a6a;
+        border-radius: 8px;
+        color: #e5eefb;
+        font-size: 18px;
+        font-weight: bold;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .zoom-btn:hover {
+        background: #2a3442;
+        border-color: #2e90fa;
+      }
+      .zoom-btn:active {
+        background: #0e1726;
+      }
+      canvas#heat {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        mix-blend-mode: screen;
+        opacity: 0.65;
+        z-index: 2;
+      }
+      .marker {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #0a0f16;
+        box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+        z-index: 3;
+      }
+      .m-ok {
+        background: #22c55e;
+      }
+      .m-warn {
+        background: #f59e0b;
+      }
+      .m-alarm {
+        background: #ef4444;
+      }
+      .m-fault {
+        background: #8b5cf6;
+      }
+      .marker:hover {
+        outline: 2px solid #2e90fa;
+        cursor: pointer;
+        z-index: 10;
+      }
+      .watermark {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        color: #5a6b85;
+        font-size: 11px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      .muted {
+        color: #9fb0ca;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div>
+          <div style="font-weight: 800">Sensor Map — Aurora Tower</div>
+          <div class="muted" id="subtitle">Single‑Building · floor —</div>
+        </div>
+      </div>
+      <div class="chip">Single‑Building Mode</div>
+    </header>
+
+    <main class="wrap">
+      <aside class="panel">
+        <h2>Controls</h2>
+        <div class="content">
+          <div class="row">
+            <select id="floorSelect" class="select"></select>
+          </div>
+          <div class="row">
+            <label
+              style="display: flex; gap: 8px; align-items: center; width: 100%"
+              ><input type="checkbox" id="heatToggle" /><span
+                >Heatmap overlay</span
+              ></label
+            >
+          </div>
+          <div class="row">
+            <label
+              style="display: flex; gap: 8px; align-items: center; width: 100%"
+              ><input type="checkbox" id="gridToggle" checked /><span
+                >Show coordinate grid</span
+              ></label
+            >
+          </div>
+          <div class="row">
+            <label
+              style="display: flex; gap: 8px; align-items: center; width: 100%"
+              ><input type="checkbox" id="exitToggle" /><span
+                >Show exit paths</span
+              ></label
+            >
+          </div>
+          <div class="row">
+            <button class="btn ghost" id="back">Back to Dashboard</button>
+          </div>
+        </div>
+
+        <h2 style="margin-top: 12px">Floor Statistics</h2>
+        <div class="content" id="floorStats" style="font-size: 12px">
+          <div class="muted">Loading...</div>
+        </div>
+      </aside>
+
+      <section class="panel" style="display: flex; flex-direction: column">
+        <h2>Floor Plan</h2>
+        <div class="content" style="flex: 1; display: flex">
+          <div class="stage" id="stage">
+            <div class="floor" id="floor"></div>
+            <div class="grid-overlay" id="gridOverlay"></div>
+            <canvas id="heat"></canvas>
+            <div
+              class="watermark"
+              id="wm"
+              style="
+                position: absolute;
+                bottom: 12px;
+                right: 12px;
+                color: #5a6b85;
+                font-size: 11px;
+                z-index: 10;
+              "
+            >
+              Aurora Tower · F1 (demo)
+            </div>
+            <!-- zoom controls -->
+            <div class="zoom-controls">
+              <button class="zoom-btn" id="zoomIn" title="Zoom In">+</button>
+              <button class="zoom-btn" id="zoomReset" title="Reset">⌂</button>
+              <button class="zoom-btn" id="zoomOut" title="Zoom Out">−</button>
+            </div>
+            <!-- markers sẽ được append trực tiếp vào #stage ở đây -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Connection warning banner -->
+      <div class="connection-banner" id="connectionBanner">
+        ⚠️ Real-time connection lost. Switching to periodic refresh...
+      </div>
+
+      <aside
+        class="panel drawer"
+        style="display: flex; flex-direction: column; gap: 12px"
+      >
+        <div
+          style="
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <h2>Sensor Details</h2>
+          <div class="content" id="details" style="flex: 1; overflow-y: auto">
+            <div class="muted">
+              Click a marker to view live readings, heartbeat, and zone.
+            </div>
+          </div>
+        </div>
+
+        <div
+          style="
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <h2>Active Sensors</h2>
+          <div
+            class="content"
+            id="activeSensors"
+            style="flex: 1; overflow-y: auto; font-size: 12px"
+          >
+            <div class="muted">Loading sensors...</div>
+          </div>
+        </div>
+
+        <div
+          style="
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <h2>Recent Events</h2>
+          <div
+            class="content"
+            id="eventLog"
+            style="flex: 1; overflow-y: auto; font-size: 11px"
+          >
+            <div class="muted">No recent events</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      // API base: luôn gọi về BE (tránh gọi nhầm sang server tĩnh 5500)
+      const API = "http://localhost:8090";
+      window.FIREGUARD_API_BASE = API;
+
+      const floorSelect = document.getElementById("floorSelect");
+      const stage = document.getElementById("stage");
+      const floorEl = document.getElementById("floor");
+      const heat = document.getElementById("heat");
+      const detailsBox = document.getElementById("details");
+      const gridOverlay = document.getElementById("gridOverlay");
+      const activeSensorsBox = document.getElementById("activeSensors");
+      const eventLogBox = document.getElementById("eventLog");
+      const floorStatsBox = document.getElementById("floorStats");
+
+      let SENSORS = []; // từ /api/map/sensors
+      let LATEST_BY_ID = new Map(); // map(sensor_id -> latest reading)
+      let FLOOR_INDEX = new Map(); // floor -> count sensors (debug)
+      let GRID_VISIBLE = true;
+      let EXIT_VISIBLE = false;
+      let EVENTS = [];
+      let SSE_CONNECTION = null;
+      let CONNECTION_LOST = false;
+      let AUDIT_LOG = [];
+
+      // Zoom & Pan state
+      let zoomLevel = 1;
+      let panX = 0;
+      let panY = 0;
+      let isPanning = false;
+      let startPanX = 0;
+      let startPanY = 0;
+
+      function debugLog(msg) {
+        console.log(msg);
+      }
+
+      function logAudit(action, details = {}) {
+        const entry = {
+          timestamp: new Date().toISOString(),
+          action,
+          floor: floorSelect.value,
+          ...details,
+        };
+        AUDIT_LOG.push(entry);
+        console.log("[AUDIT]", entry);
+        // TODO: Send to backend API for persistent storage
+      }
+
+      function applyTransform() {
+        if (!stage) return;
+        stage.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px)`;
+        stage.style.transformOrigin = "center center";
+        stage.style.transition = "transform 0.2s ease";
+      }
+
+      function zoom(delta) {
+        const oldZoom = zoomLevel;
+        zoomLevel = Math.max(0.5, Math.min(3, zoomLevel + delta));
+        logAudit("zoom", { from: oldZoom, to: zoomLevel });
+        applyTransform();
+      }
+
+      function resetView() {
+        zoomLevel = 1;
+        panX = 0;
+        panY = 0;
+        logAudit("reset_view");
+        applyTransform();
+      }
+
+      function setupZoomPan() {
+        // Zoom buttons
+        document.getElementById("zoomIn").onclick = () => zoom(0.2);
+        document.getElementById("zoomOut").onclick = () => zoom(-0.2);
+        document.getElementById("zoomReset").onclick = resetView;
+
+        // Mouse wheel zoom
+        stage.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? -0.1 : 0.1;
+          zoom(delta);
+        });
+
+        // Pan with mouse drag
+        stage.addEventListener("mousedown", (e) => {
+          if (e.target === stage || e.target === floorEl) {
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+            stage.style.cursor = "grabbing";
+          }
+        });
+
+        window.addEventListener("mousemove", (e) => {
+          if (isPanning) {
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            applyTransform();
+          }
+        });
+
+        window.addEventListener("mouseup", () => {
+          if (isPanning) {
+            isPanning = false;
+            stage.style.cursor = "default";
+            logAudit("pan", { x: panX, y: panY });
+          }
+        });
+      }
+
+      function showConnectionWarning() {
+        CONNECTION_LOST = true;
+        const banner = document.getElementById("connectionBanner");
+        if (banner) {
+          banner.classList.add("show");
+          logAudit("connection_lost");
+        }
+      }
+
+      function hideConnectionWarning() {
+        CONNECTION_LOST = false;
+        const banner = document.getElementById("connectionBanner");
+        if (banner) {
+          banner.classList.remove("show");
+          logAudit("connection_restored");
+        }
+      }
+
+      function drawGrid() {
+        if (!gridOverlay) return;
+        gridOverlay.innerHTML = "";
+
+        // Vẽ lưới 10x10 (mỗi ô 10%)
+        for (let i = 0; i <= 10; i++) {
+          const pct = i * 10;
+
+          // Đường ngang
+          const h = document.createElement("div");
+          h.className = "grid-line h";
+          h.style.top = pct + "%";
+          gridOverlay.appendChild(h);
+
+          // Đường dọc
+          const v = document.createElement("div");
+          v.className = "grid-line v";
+          v.style.left = pct + "%";
+          gridOverlay.appendChild(v);
+
+          // Nhãn góc trên bên trái
+          if (i > 0 && i < 10) {
+            const lbl = document.createElement("div");
+            lbl.className = "grid-label";
+            lbl.style.left = pct - 2 + "%";
+            lbl.style.top = "2px";
+            lbl.textContent = pct + "%";
+            gridOverlay.appendChild(lbl);
+
+            const lblY = document.createElement("div");
+            lblY.className = "grid-label";
+            lblY.style.left = "2px";
+            lblY.style.top = pct - 1 + "%";
+            lblY.textContent = pct + "%";
+            gridOverlay.appendChild(lblY);
+          }
+        }
+      }
+
+      function drawFloorPlan(floor) {
+        if (!floorEl) return;
+        floorEl.innerHTML = "";
+
+        // Tạo sơ đồ tòa nhà ảo dựa theo tầng
+        const plans = {
+          B1: [
+            { type: "room", x: 5, y: 10, w: 40, h: 35, label: "Parking West" },
+            { type: "room", x: 50, y: 10, w: 45, h: 35, label: "Parking East" },
+            { type: "corridor", x: 45, y: 10, w: 5, h: 80 },
+            { type: "room", x: 5, y: 50, w: 40, h: 40, label: "Storage" },
+            {
+              type: "room",
+              x: 50,
+              y: 50,
+              w: 45,
+              h: 40,
+              label: "Technical Room",
+            },
+            { type: "entrance", x: 45, y: 85, w: 10, h: 8, label: "EXIT" },
+          ],
+          F1: [
+            { type: "corridor", x: 10, y: 5, w: 80, h: 10 },
+            { type: "room", x: 5, y: 20, w: 35, h: 30, label: "Lobby" },
+            { type: "room", x: 45, y: 20, w: 25, h: 30, label: "Reception" },
+            { type: "room", x: 75, y: 20, w: 20, h: 30, label: "Security" },
+            { type: "corridor", x: 40, y: 20, w: 5, h: 70 },
+            { type: "room", x: 5, y: 55, w: 35, h: 35, label: "Café" },
+            { type: "room", x: 45, y: 55, w: 25, h: 35, label: "Meeting Room" },
+            { type: "room", x: 75, y: 55, w: 20, h: 35, label: "Server Room" },
+            { type: "entrance", x: 20, y: 5, w: 10, h: 8, label: "ENTRANCE" },
+          ],
+          F2: [
+            { type: "corridor", x: 5, y: 10, w: 90, h: 8 },
+            { type: "room", x: 10, y: 25, w: 35, h: 30, label: "Office A" },
+            { type: "room", x: 50, y: 25, w: 40, h: 30, label: "Office B" },
+            { type: "corridor", x: 45, y: 25, w: 5, h: 60 },
+            { type: "room", x: 10, y: 60, w: 35, h: 30, label: "Meeting Room" },
+            { type: "room", x: 50, y: 60, w: 40, h: 30, label: "Conference" },
+          ],
+          F3: [
+            { type: "corridor", x: 5, y: 10, w: 90, h: 8 },
+            {
+              type: "room",
+              x: 10,
+              y: 25,
+              w: 40,
+              h: 65,
+              label: "Open Office Space",
+            },
+            {
+              type: "room",
+              x: 55,
+              y: 25,
+              w: 35,
+              h: 30,
+              label: "Executive Office",
+            },
+            { type: "room", x: 55, y: 60, w: 35, h: 30, label: "Board Room" },
+          ],
+          F4: [
+            { type: "corridor", x: 5, y: 10, w: 90, h: 8 },
+            {
+              type: "room",
+              x: 10,
+              y: 25,
+              w: 35,
+              h: 30,
+              label: "Training Room",
+            },
+            { type: "room", x: 50, y: 25, w: 40, h: 30, label: "Workshop" },
+            {
+              type: "room",
+              x: 10,
+              y: 60,
+              w: 80,
+              h: 30,
+              label: "Multi-Purpose Hall",
+            },
+          ],
+        };
+
+        const layout = plans[floor] || plans["F1"];
+        layout.forEach((item) => {
+          const el = document.createElement("div");
+          el.className = item.type;
+          el.style.left = item.x + "%";
+          el.style.top = item.y + "%";
+          el.style.width = item.w + "%";
+          el.style.height = item.h + "%";
+
+          if (item.label) {
+            const lbl = document.createElement("div");
+            lbl.className = "room-label";
+            lbl.textContent = item.label;
+            el.appendChild(lbl);
+          }
+
+          floorEl.appendChild(el);
+        });
+
+        // Vẽ exit paths nếu được bật
+        if (EXIT_VISIBLE) {
+          drawExitPaths(floor);
+        }
+      }
+
+      function drawExitPaths(floor) {
+        if (!floorEl) return;
+
+        const exitPaths = {
+          B1: [
+            { x: 47.5, y: 50, dir: "↓", path: { x: 46, y: 50, w: 3, h: 35 } },
+          ],
+          F1: [
+            { x: 22, y: 12, dir: "↑", path: { x: 20, y: 5, w: 5, h: 15 } },
+            { x: 42, y: 35, dir: "→", path: { x: 25, y: 34, w: 17, h: 3 } },
+          ],
+          F2: [
+            { x: 47.5, y: 15, dir: "↑", path: { x: 46, y: 10, w: 3, h: 15 } },
+          ],
+          F3: [
+            { x: 47.5, y: 15, dir: "↑", path: { x: 46, y: 10, w: 3, h: 15 } },
+          ],
+          F4: [
+            { x: 47.5, y: 15, dir: "↑", path: { x: 46, y: 10, w: 3, h: 15 } },
+          ],
+        };
+
+        const paths = exitPaths[floor] || [];
+        paths.forEach((item) => {
+          if (item.path) {
+            const p = document.createElement("div");
+            p.className = "exit-path";
+            p.style.left = item.path.x + "%";
+            p.style.top = item.path.y + "%";
+            p.style.width = item.path.w + "%";
+            p.style.height = item.path.h + "%";
+            floorEl.appendChild(p);
+          }
+
+          const arrow = document.createElement("div");
+          arrow.className = "exit-arrow";
+          arrow.style.left = item.x + "%";
+          arrow.style.top = item.y + "%";
+          arrow.textContent = item.dir;
+          floorEl.appendChild(arrow);
+        });
+      }
+
+      function stateClass(s) {
+        return s === "Alarm"
+          ? "m-alarm"
+          : s === "Warning"
+          ? "m-warn"
+          : s === "Fault"
+          ? "m-fault"
+          : "m-ok";
+      }
+
+      function clearMarkers() {
+        [...stage.querySelectorAll(".marker")].forEach((m) => m.remove());
+      }
+
+      function computeStateByReading(r) {
+        if (!r) return "Normal";
+        // Ngưỡng tham chiếu theo DB seed: smoke>70ppm, temp>60C, co2>1200ppm
+        if (
+          (r.smoke_ppm != null && r.smoke_ppm > 70) ||
+          (r.temp_c != null && r.temp_c > 60) ||
+          (r.co2_ppm != null && r.co2_ppm > 1200)
+        ) {
+          return "Alarm";
+        }
+        return "Normal";
+      }
+
+      function posPerc(v) {
+        if (v == null || v === "") return null;
+        // Hỗ trợ cả dạng "0.62", 0.62, 62, "62%"
+        if (typeof v === "string" && v.trim().endsWith("%")) {
+          const nPct = parseFloat(v.trim().slice(0, -1));
+          if (Number.isNaN(nPct)) return null;
+          return Math.max(0, Math.min(nPct, 100));
+        }
+        const n = Number(v);
+        if (Number.isNaN(n)) return null;
+        return n > 1
+          ? Math.max(0, Math.min(n, 100))
+          : Math.max(0, Math.min(n * 100, 100));
+      }
+
+      function renderMarkers() {
+        clearMarkers();
+        const current = SENSORS.filter(
+          (s) => s.floor_norm === floorSelect.value
+        );
+        debugLog(
+          `[Render] floor=${floorSelect.value} total=${SENSORS.length} onFloor=${current.length}`
+        );
+        if (current.length === 0) {
+          detailsBox.innerHTML = `<div class="muted">Không có sensor nào thuộc tầng ${floorSelect.value}. Hãy kiểm tra cột floor ở bảng zones.</div>`;
+        }
+
+        const withCoords = current.filter(
+          (s) => posPerc(s.map_x) != null && posPerc(s.map_y) != null
+        );
+        debugLog(`[Render] withCoords=${withCoords.length}`);
+        if (current.length > 0 && withCoords.length === 0) {
+          detailsBox.innerHTML = `<div class="muted">Tầng ${floorSelect.value} có sensors nhưng tất cả thiếu toạ độ. Kiểm tra các cột map_x/map_y trong firecore.sensors.</div>`;
+        }
+
+        // Fallback: nếu không có marker nào trên floor được chọn thì hiển thị tất cả sensors có toạ độ để bạn kiểm tra nhanh
+        let drawList = withCoords;
+        if (drawList.length === 0 && SENSORS.length > 0) {
+          const allWithCoords = SENSORS.filter(
+            (s) => posPerc(s.map_x) != null && posPerc(s.map_y) != null
+          );
+        }
+
+        debugLog(`[Render] Drawing ${drawList.length} markers...`);
+        let drawn = 0;
+        drawList.forEach((s, idx) => {
+          const latest = LATEST_BY_ID.get(s.sensor_id);
+          const state = computeStateByReading(latest);
+
+          const px = posPerc(s.map_x);
+          const py = posPerc(s.map_y);
+          if (px == null || py == null) {
+            if (idx < 3)
+              debugLog(
+                `[Skip] ${s.serial_number || s.sensor_id} - bad coords: ${
+                  s.map_x
+                }, ${s.map_y}`
+              );
+            return;
+          }
+
+          if (idx < 3) {
+            debugLog(
+              `[Draw] ${s.serial_number || s.sensor_id} at ${px}%, ${py}% (${
+                s.map_x
+              }, ${s.map_y}) state=${state}`
+            );
+          }
+          const m = document.createElement("div");
+          m.className = `marker ${stateClass(state)}`;
+          m.style.left = px + "%";
+          m.style.top = py + "%";
+          m.title = `${s.serial_number || s.sensor_id} — ${s.type || ""}`;
+          m.onclick = () => showDetails(s.sensor_id);
+          stage.appendChild(m);
+          drawn++;
+        });
+
+        debugLog(
+          `[Render] Drew ${drawn} markers. DOM count: ${
+            stage.querySelectorAll(".marker").length
+          }`
+        );
+
+        drawHeat(drawList);
+        renderActiveSensors();
+        renderFloorStats();
+      }
+
+      function renderActiveSensors() {
+        if (!activeSensorsBox) return;
+        const current = SENSORS.filter(
+          (s) => s.floor_norm === floorSelect.value
+        );
+        if (current.length === 0) {
+          activeSensorsBox.innerHTML =
+            '<div class="muted">No sensors on this floor</div>';
+          return;
+        }
+
+        let html = "";
+        current.forEach((s) => {
+          const latest = LATEST_BY_ID.get(s.sensor_id);
+          const state = computeStateByReading(latest);
+          const stateColor = state === "Alarm" ? "alarm" : "ok";
+          const value = latest
+            ? latest.smoke_ppm
+              ? `${latest.smoke_ppm}ppm`
+              : latest.temp_c
+              ? `${latest.temp_c}°C`
+              : latest.co2_ppm
+              ? `${latest.co2_ppm}ppm`
+              : "—"
+            : "—";
+
+          html += `<div class="sensor-badge ${stateColor}" onclick="showDetails('${
+            s.sensor_id
+          }')">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: ${
+              state === "Alarm" ? "#ef4444" : "#22c55e"
+            };"></div>
+            <div style="flex: 1;">
+              <div style="font-weight: 600;">${
+                s.serial_number || s.sensor_id
+              }</div>
+              <div style="font-size: 10px; color: #7a8fa3;">${
+                s.type || ""
+              } · ${value}</div>
+            </div>
+          </div>`;
+        });
+        activeSensorsBox.innerHTML = html;
+      }
+
+      function renderFloorStats() {
+        if (!floorStatsBox) return;
+        const current = SENSORS.filter(
+          (s) => s.floor_norm === floorSelect.value
+        );
+        let totalAlarms = 0,
+          totalNormal = 0;
+        current.forEach((s) => {
+          const latest = LATEST_BY_ID.get(s.sensor_id);
+          const state = computeStateByReading(latest);
+          if (state === "Alarm") totalAlarms++;
+          else totalNormal++;
+        });
+
+        floorStatsBox.innerHTML = `
+          <div class="stat-row">
+            <span class="stat-label">Total Sensors</span>
+            <span class="stat-value">${current.length}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Active Alarms</span>
+            <span class="stat-value" style="color: #ef4444;">${totalAlarms}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Normal</span>
+            <span class="stat-value" style="color: #22c55e;">${totalNormal}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Floor</span>
+            <span class="stat-value">${floorSelect.value}</span>
+          </div>
+        `;
+      }
+
+      function renderEventLog() {
+        if (!eventLogBox) return;
+        if (EVENTS.length === 0) {
+          eventLogBox.innerHTML = '<div class="muted">No recent events</div>';
+          return;
+        }
+
+        let html = "";
+        EVENTS.slice(0, 10).forEach((evt) => {
+          const time = new Date(evt.ts).toLocaleTimeString();
+          html += `<div class="event-item">
+            <div style="font-weight: 600; font-size: 11px;">${evt.message}</div>
+            <div class="event-time">${time}</div>
+          </div>`;
+        });
+        eventLogBox.innerHTML = html;
+      }
+
+      async function showDetails(sensorId) {
+        // Lấy detail + history thật từ BE (UC-13)
+        logAudit(`Viewing sensor ${sensorId} details`);
+        try {
+          const res = await fetch(
+            window.FIREGUARD_API_BASE + "/api/map/sensor/" + sensorId
+          );
+          if (!res.ok) throw new Error("fetch detail failed");
+          const data = await res.json();
+          const d = data.info || {};
+          const hist = data.history || [];
+
+          detailsBox.innerHTML = `
+        <div class="kv">
+          <div class="muted">Sensor</div>
+          <div><strong>${
+            d.serial_number || d.sensor_id || sensorId
+          }</strong> · ${d.type || ""}</div>
+
+          <div class="muted">Zone</div>
+          <div>${d.zone_name || ""} · ${d.floor || ""}</div>
+
+          <div class="muted">Recent</div>
+          <div>
+            ${hist
+              .slice(0, 6)
+              .map(
+                (h) => `
+              <div class="muted">
+                ${new Date(h.reading_ts).toLocaleTimeString()} —
+                ${h.smoke_ppm != null ? `smoke ${h.smoke_ppm}ppm ` : ""}
+                ${h.temp_c != null ? `temp ${h.temp_c}°C ` : ""}
+                ${h.co2_ppm != null ? `co2 ${h.co2_ppm}ppm` : ""}
+              </div>`
+              )
+              .join("")}
+          </div>
+        </div>
+      `;
+        } catch (e) {
+          console.error("showDetails", e);
+          detailsBox.innerHTML = `<div class="muted">Failed to load sensor details.</div>`;
+        }
+      }
+
+      function updateSubtitle() {
+        document.getElementById(
+          "subtitle"
+        ).textContent = `Single-Building · floor ${floorSelect.value}`;
+        document.getElementById(
+          "wm"
+        ).textContent = `Aurora Tower · ${floorSelect.value}`;
+      }
+
+      function drawHeat(current) {
+        const ctx = heat.getContext("2d");
+        heat.width = stage.clientWidth;
+        heat.height = stage.clientHeight;
+        ctx.clearRect(0, 0, heat.width, heat.height);
+        if (!document.getElementById("heatToggle").checked) return;
+
+        current.forEach((s) => {
+          const r = LATEST_BY_ID.get(s.sensor_id);
+          const px = posPerc(s.map_x);
+          const py = posPerc(s.map_y);
+          if (px == null || py == null) return;
+          const x = (px / 100) * heat.width;
+          const y = (py / 100) * heat.height;
+
+          // Cường độ nhiệt tổng hợp từ ba chỉ số (chuẩn hoá đơn giản)
+          const smoke =
+            r && r.smoke_ppm != null
+              ? Math.min(Number(r.smoke_ppm) / 300, 1)
+              : 0;
+          const temp =
+            r && r.temp_c != null ? Math.min(Number(r.temp_c) / 90, 1) : 0;
+          const co2 =
+            r && r.co2_ppm != null ? Math.min(Number(r.co2_ppm) / 2000, 1) : 0;
+          const intensity = Math.max(smoke, temp, co2); // lấy max để nổi bật điểm nóng
+
+          if (intensity <= 0) return;
+
+          const rpx = 120 + intensity * 120; // bán kính phụ thuộc cường độ
+          const g = ctx.createRadialGradient(x, y, 0, x, y, rpx);
+          const alpha = 0.15 + 0.5 * intensity;
+          g.addColorStop(0, `rgba(255,80,80,${alpha})`);
+          g.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x, y, rpx, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      async function loadSensorsAndLatest() {
+        try {
+          // 1) Lấy danh sách sensor (toạ độ/map_x/y/zone/floor)
+          const resS = await fetch(
+            window.FIREGUARD_API_BASE + "/api/map/sensors"
+          );
+          if (!resS.ok) throw new Error("fetch sensors failed");
+          const sensors = await resS.json();
+          if (!Array.isArray(sensors) || sensors.length === 0) {
+            detailsBox.innerHTML = `<div class="muted">API /api/map/sensors trả về rỗng. Kiểm tra dữ liệu DB (schema firecore) và điều kiện s.is_active=true, hoặc cấu hình kết nối DB của backend.</div>`;
+          }
+
+          function normalizeFloor(raw) {
+            if (raw == null) return "";
+            const t = String(raw).trim();
+            // Hỗ trợ F3 / f3 / 3 / Floor 3
+            const m = t.match(/^[Ff]?(\d+)$/);
+            if (m) return "F" + m[1];
+            const m2 = t.match(/^[Ff]loor\s*(\d+)$/);
+            if (m2) return "F" + m2[1];
+            return t; // giữ nguyên nếu khác pattern
+          }
+
+          SENSORS = sensors.map((s) => ({
+            sensor_id: s.sensor_id || s.id,
+            zone_id: s.zone_id,
+            serial_number: s.serial_number,
+            type: s.type,
+            zone_name: s.zone_name,
+            floor_raw: String(s.floor || s.floor_name || ""),
+            floor_norm: normalizeFloor(s.floor || s.floor_name || ""),
+            // Để nguyên giá trị, hàm posPerc() sẽ tự chuẩn hoá 0..1 / 0..100 / "%"
+            map_x: s.map_x,
+            map_y: s.map_y,
+            map_ref: s.map_ref,
+          }));
+
+          // Xây index debug floor -> count
+          FLOOR_INDEX = new Map();
+          SENSORS.forEach((s) => {
+            FLOOR_INDEX.set(
+              s.floor_norm,
+              (FLOOR_INDEX.get(s.floor_norm) || 0) + 1
+            );
+          });
+
+          // 2) Lấy latest readings từ dashboard overview
+          const resO = await fetch(
+            window.FIREGUARD_API_BASE + "/api/dashboard/overview"
+          );
+          if (!resO.ok) throw new Error("fetch overview failed");
+          const overview = await resO.json();
+          LATEST_BY_ID = new Map(
+            (overview.latestReadings || []).map((r) => [r.sensor_id, r])
+          );
+
+          // 3) Floors
+          const FLOORS = Array.from(
+            new Set(SENSORS.map((s) => s.floor_norm).filter(Boolean))
+          );
+          floorSelect.innerHTML = "";
+          FLOORS.forEach((f) => {
+            const o = document.createElement("option");
+            o.value = f;
+            o.textContent = `Floor ${f}`;
+            floorSelect.appendChild(o);
+          });
+          const url = new URLSearchParams(location.search);
+          const qZone = url.get("zone");
+          let initial = url.get("floor");
+          if (!initial && qZone) {
+            const found = SENSORS.find(
+              (s) => String(s.zone_id) === String(qZone)
+            );
+            if (found) initial = found.floor_norm;
+          }
+          if (!initial) initial = FLOORS[0] || "";
+          floorSelect.value = initial;
+
+          // 4) Optional: đặt ảnh sơ đồ tầng nếu có map_ref
+          const fSensor = SENSORS.find(
+            (s) => s.floor_norm === floorSelect.value && s.map_ref
+          );
+          if (fSensor && fSensor.map_ref) {
+            // BE phục vụ ảnh ở /public/maps/*
+            floorEl.style.backgroundImage = `url('${API}/public/maps/${fSensor.map_ref}')`;
+            floorEl.style.backgroundSize = "cover";
+          } else {
+            floorEl.style.backgroundImage = "none";
+          }
+
+          if (
+            !overview.latestReadings ||
+            overview.latestReadings.length === 0
+          ) {
+            detailsBox.innerHTML = `<div class="muted">Không có dữ liệu latestReadings. Heatmap sẽ hiển thị khi có readings.</div>`;
+          }
+
+          updateSubtitle();
+          debugLog(`[Load] Total sensors: ${SENSORS.length}`);
+          debugLog(
+            `[Load] Floor index: ${JSON.stringify(
+              Object.fromEntries(FLOOR_INDEX)
+            )}`
+          );
+          debugLog(
+            `[Load] Sample sensor: ${JSON.stringify(SENSORS[0] || "none")}`
+          );
+
+          // Đợi DOM render xong rồi vẽ markers (vì stage width = 0 lúc đầu)
+          requestAnimationFrame(() => {
+            debugLog(
+              `[Load] Stage: ${stage.clientWidth}x${stage.clientHeight}`
+            );
+            drawFloorPlan(floorSelect.value);
+            drawGrid();
+            renderMarkers();
+            renderEventLog();
+            setupZoomPan(); // Initialize zoom/pan controls
+            logAudit("Map view loaded");
+          });
+        } catch (e) {
+          console.error("loadSensorsAndLatest", e);
+          detailsBox.innerHTML = `<div class="muted">Không tải được dữ liệu bản đồ. Hãy kiểm tra backend ở ${API} (endpoints /api/map/sensors và /api/dashboard/overview).</div>`;
+        }
+      }
+
+      function startStreamOptional() {
+        // Nếu BE có /api/map/stream (SSE) thì cập nhật latest tại chỗ
+        try {
+          const es = new EventSource(
+            window.FIREGUARD_API_BASE + "/api/map/stream"
+          );
+          SSE_CONNECTION = es;
+
+          es.onopen = () => {
+            if (CONNECTION_LOST) {
+              logAudit("SSE reconnected");
+              hideConnectionWarning();
+              CONNECTION_LOST = false;
+            }
+          };
+
+          es.onmessage = (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+
+              // Update latest readings
+              if (Array.isArray(d.latest)) {
+                d.latest.forEach((l) => {
+                  const prev = LATEST_BY_ID.get(l.sensor_id);
+                  LATEST_BY_ID.set(l.sensor_id, l);
+
+                  // Log state changes
+                  if (prev) {
+                    const prevState = computeStateByReading(prev);
+                    const newState = computeStateByReading(l);
+                    if (prevState !== newState) {
+                      const sensor = SENSORS.find(
+                        (s) => s.sensor_id === l.sensor_id
+                      );
+                      EVENTS.unshift({
+                        ts: new Date().toISOString(),
+                        message: `${
+                          sensor?.serial_number || l.sensor_id
+                        }: ${prevState} → ${newState}`,
+                      });
+                      EVENTS = EVENTS.slice(0, 50); // Keep last 50
+                      renderEventLog();
+                    }
+                  }
+                });
+                renderMarkers();
+              }
+
+              // Log new events
+              if (
+                Array.isArray(d.active_events) &&
+                d.active_events.length > 0
+              ) {
+                d.active_events.forEach((evt) => {
+                  if (!EVENTS.find((e) => e.id === evt.id)) {
+                    EVENTS.unshift({
+                      id: evt.id,
+                      ts: evt.suspected_at || new Date().toISOString(),
+                      message: `Fire event in zone ${evt.zone_id}`,
+                    });
+                  }
+                });
+                EVENTS = EVENTS.slice(0, 50);
+                renderEventLog();
+              }
+            } catch (e) {
+              console.error("sse parse", e);
+            }
+          };
+
+          es.onerror = (e) => {
+            console.warn("SSE error", e);
+            logAudit("SSE connection lost");
+            if (!CONNECTION_LOST) {
+              CONNECTION_LOST = true;
+              showConnectionWarning();
+
+              // Start polling fallback every 5 seconds
+              const pollInterval = setInterval(async () => {
+                if (!CONNECTION_LOST) {
+                  clearInterval(pollInterval);
+                  return;
+                }
+                try {
+                  const resp = await fetch(
+                    window.FIREGUARD_API_BASE + "/api/dashboard/overview"
+                  );
+                  const data = await resp.json();
+                  if (data.latestReadings) {
+                    data.latestReadings.forEach((l) => {
+                      LATEST_BY_ID.set(l.sensor_id, l);
+                    });
+                    renderMarkers();
+                  }
+                } catch (pollErr) {
+                  console.error("Polling fallback error:", pollErr);
+                }
+              }, 5000);
+            }
+            es.close && es.close();
+          };
+        } catch (e) {
+          // Không có SSE cũng không sao — đã có polling từ overview
+          console.warn("SSE not available", e);
+        }
+      }
+
+      // UI events
+      document.getElementById("back").onclick = () =>
+        (location.href =
+          `dashboard.html?floor=` + encodeURIComponent(floorSelect.value));
+
+      floorSelect.addEventListener("change", () => {
+        updateSubtitle();
+        debugLog(`[Change] Floor -> ${floorSelect.value}`);
+        drawFloorPlan(floorSelect.value);
+        renderMarkers();
+        history.replaceState({}, "", `?floor=${floorSelect.value}`);
+        logAudit(`Floor changed to ${floorSelect.value}`);
+      });
+
+      document.getElementById("heatToggle").addEventListener("change", (e) => {
+        renderMarkers();
+        logAudit(`Heatmap ${e.target.checked ? "enabled" : "disabled"}`);
+      });
+
+      document.getElementById("gridToggle").addEventListener("change", (e) => {
+        GRID_VISIBLE = e.target.checked;
+        gridOverlay.style.display = GRID_VISIBLE ? "block" : "none";
+        logAudit(`Grid overlay ${e.target.checked ? "enabled" : "disabled"}`);
+      });
+
+      document.getElementById("exitToggle").addEventListener("change", (e) => {
+        EXIT_VISIBLE = e.target.checked;
+        drawFloorPlan(floorSelect.value);
+        logAudit(`Exit paths ${e.target.checked ? "enabled" : "disabled"}`);
+      });
+
+      window.addEventListener("resize", () => {
+        drawFloorPlan(floorSelect.value);
+        drawGrid();
+        renderMarkers();
+      });
+
+      // Run
+      loadSensorsAndLatest();
+      // Optional SSE (nếu có endpoint), nếu không có thì vẫn ổn vì markers dựa trên latest của overview:
+      startStreamOptional();
+      // Poll nhẹ mỗi 7s để đồng bộ nếu không có SSE:
+      setInterval(loadSensorsAndLatest, 7000);
+    </script>
+  </body>
+</html>

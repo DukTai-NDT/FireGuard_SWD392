@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FireGuard – Building Dashboard</title>
     <style>
-      /* (kept original styles for brevity) */
+      /* simplified styles (kept visual parity with original) */
       :root {
         --bg: #0b0f14;
         --panel: #111823;
@@ -119,19 +119,6 @@
         font-size: 26px;
         font-weight: 800;
       }
-      .ok {
-        color: var(--ok);
-      }
-      .warn {
-        color: var(--warn);
-      }
-      .alarm {
-        color: var(--alarm);
-      }
-
-      .fault {
-        color: var(--fault);
-      }
       .grid {
         display: grid;
         grid-template-columns: 2fr 1fr;
@@ -175,6 +162,9 @@
         border-radius: 999px;
         font-weight: 700;
         font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
       .b-ok {
         background: rgba(34, 197, 94, 0.12);
@@ -226,6 +216,7 @@
         box-shadow: var(--shadow);
         padding: 12px 14px;
         animation: slideIn 0.2s ease-out;
+        cursor: pointer;
       }
       .toast h4 {
         margin: 0 0 6px 0;
@@ -255,6 +246,9 @@
       .toast.alarm {
         border-left-color: var(--alarm);
       }
+      .toast.ok {
+        border-left-color: var(--ok);
+      }
       @keyframes slideIn {
         from {
           transform: translateY(-10px);
@@ -264,10 +258,6 @@
           transform: translateY(0);
           opacity: 1;
         }
-      }
-      .event .top {
-        display: flex;
-        justify-content: space-between;
       }
       .muted {
         color: #9fb0ca;
@@ -304,6 +294,10 @@
           id="searchZone"
           placeholder="Search zone or sensor…"
         />
+        <select class="select" id="kpiScope">
+          <option value="building">KPIs: Building</option>
+          <option value="floor">KPIs: Current floor</option>
+        </select>
         <button class="btn" id="openMap">View on Map</button>
         <span id="liveStatus" class="muted" style="margin-left: auto"
           >Live: connecting… · Updated: —</span
@@ -351,9 +345,7 @@
 
         <aside class="panel">
           <h2>Recent Events</h2>
-          <div class="content">
-            <div class="events" id="events"></div>
-          </div>
+          <div class="content"><div class="events" id="events"></div></div>
         </aside>
       </div>
 
@@ -368,21 +360,31 @@
     <div id="toasts" class="toasts"></div>
 
     <script>
-      // API base (same origin when served from server)
-      const API = "";
+      // API base: trỏ thẳng về BE để file chạy cả khi mở bằng file://
+      const API = "http://localhost:8090";
+      window.FIREGUARD_API_BASE = API;
 
-      // UI elements
       const floorSelect = document.getElementById("floorSelect");
       const zonesTbody = document.querySelector("#zonesTbl tbody");
       const eventsBox = document.getElementById("events");
 
-      // local state
       let ZONES = [];
       let EVENTS = [];
+      let KPI_SCOPE = "building"; // 'building' | 'floor'
       let STREAM_CONNECTED = false;
-      let STREAM_READY = false; // skip notifications on first payload
+      let STREAM_READY = false; // skip notifications on first SSE payload
       let PREV_ALARM_ZONES = new Set();
       let PREV_EVENT_IDS = new Set();
+      let LAST_OVERVIEW_AT = 0; // ms
+      // Live indexes for instant state updates from SSE
+      const SENSOR_TO_ZONE = new Map(); // sensor_id -> { zone_id, floor }
+      const ZONE_TO_SENSORS = new Map(); // zone_id -> Set(sensor_id)
+      const LATEST_BY_SENSOR = new Map(); // sensor_id -> latest reading
+      // UI override to avoid flicker: when a reading crosses threshold, we set
+      // a temporary Alarm state for that zone without immediately clearing it
+      // unless stability is observed or overview confirms.
+      const ZONE_OVERRIDE = new Map(); // zone_id -> 'Alarm'
+      const ZONE_COOLDOWN = new Map(); // zone_id -> consecutive-normal counter
 
       function idOfEvent(e) {
         return (
@@ -392,12 +394,31 @@
         );
       }
 
-      function pushToast(title, msg, level = "warn") {
+      function pushToast(title, msg, level = "warn", goTo) {
         const box = document.getElementById("toasts");
         const div = document.createElement("div");
         div.className = `toast ${level}`;
         div.innerHTML = `<div class="row"><h4>${title}</h4><button class="btn-ack">Acknowledge</button></div><div class="msg">${msg}</div>`;
-        div.querySelector(".btn-ack").onclick = () => div.remove();
+        const ack = div.querySelector(".btn-ack");
+        ack.onclick = (e) => {
+          e.stopPropagation();
+          div.remove();
+        };
+        // Navigate to the sensor's floor/zone when clicking the toast
+        div.onclick = () => {
+          try {
+            if (goTo && goTo.floor) {
+              floorSelect.value = goTo.floor;
+              renderTable();
+              history.replaceState({}, "", `?floor=${goTo.floor}`);
+            }
+            if (goTo && goTo.openMap) {
+              location.href = `sensor-map.html?floor=${encodeURIComponent(
+                goTo.floor || ""
+              )}&zone=${encodeURIComponent(goTo.zone_id || "")}`;
+            }
+          } catch {}
+        };
         box.appendChild(div);
         setTimeout(() => div.remove(), 12000);
         if (level === "alarm") {
@@ -444,7 +465,8 @@
             pushToast(
               `ALARM — ${z?.zone_name || zid}`,
               `Floor ${z?.floor || ""}: Active alarm triggered`,
-              "alarm"
+              "alarm",
+              { floor: z?.floor || "", zone_id: zid }
             );
           }
         }
@@ -456,57 +478,17 @@
             pushToast(
               `Warning — ${e.zone_name || ""}`,
               `${e.summary || e.message || ""} (S${sev})`,
-              "warn"
+              "warn",
+              { floor: e.floor || "", zone_id: e.zone_id || e.zoneid }
             );
           }
         }
         PREV_EVENT_IDS = new Set(events.map(idOfEvent));
       }
 
-      // populate floors from zone data (will be replaced after fetch)
-      function populateFloors() {
-        const floors = Array.from(
-          new Set(ZONES.map((z) => z.floor).filter(Boolean))
-        );
-        floorSelect.innerHTML = "";
-        floors.forEach((f) => {
-          const o = document.createElement("option");
-          o.value = f;
-          o.textContent = `Floor ${f}`;
-          floorSelect.appendChild(o);
-        });
-        if (!floorSelect.value && floors[0]) floorSelect.value = floors[0];
-      }
-
       function fmtTime(ts) {
         if (!ts) return "—";
         return new Date(ts).toLocaleString();
-      }
-
-      function renderKpis() {
-        // KPIs at building level (not affected by current grid filter)
-        const all = ZONES;
-        const total = all.reduce((a, r) => {
-          const act = Number(r.active_sensors) || 0;
-          const ina = Number(r.inactive_sensors) || 0;
-          return a + act + ina;
-        }, 0);
-        const alarm = all.reduce(
-          (a, r) => a + (Number(r.active_alarms) || 0),
-          0
-        );
-        const normal = all.filter(
-          (r) => (Number(r.active_alarms) || 0) === 0
-        ).length;
-        const warn = all.filter(
-          (r) =>
-            (Number(r.active_alarms) || 0) > 0 &&
-            (Number(r.active_alarms) || 0) < 2
-        ).length;
-        document.getElementById("kpiSensors").textContent = total;
-        document.getElementById("kpiNormal").textContent = normal;
-        document.getElementById("kpiWarn").textContent = warn;
-        document.getElementById("kpiAlarm").textContent = alarm;
       }
 
       function badge(state) {
@@ -519,10 +501,139 @@
         return `<span class="badge ${map[state] || ""}">${state}</span>`;
       }
 
+      // Threshold classification using raw readings (mirrors map page)
+      function computeStateByReading(r) {
+        if (!r) return "Normal";
+        if (
+          (r.smoke_ppm != null && Number(r.smoke_ppm) > 70) ||
+          (r.temp_c != null && Number(r.temp_c) > 60) ||
+          (r.co2_ppm != null && Number(r.co2_ppm) > 1200)
+        ) {
+          return "Alarm";
+        }
+        return "Normal";
+      }
+
+      function fmtReading(r) {
+        if (!r) return "(không có dữ liệu)";
+        const parts = [];
+        if (r.smoke_ppm != null) parts.push(`Khói ${Number(r.smoke_ppm)}ppm`);
+        if (r.temp_c != null) parts.push(`Nhiệt ${Number(r.temp_c)}°C`);
+        if (r.co2_ppm != null) parts.push(`CO₂ ${Number(r.co2_ppm)}ppm`);
+        return parts.join(", ");
+      }
+
+      function alarmCauses(r) {
+        if (!r) return [];
+        const causes = [];
+        if (r.smoke_ppm != null && Number(r.smoke_ppm) > 70)
+          causes.push(`Khói ${Number(r.smoke_ppm)}ppm (>70)`);
+        if (r.temp_c != null && Number(r.temp_c) > 60)
+          causes.push(`Nhiệt ${Number(r.temp_c)}°C (>60)`);
+        if (r.co2_ppm != null && Number(r.co2_ppm) > 1200)
+          causes.push(`CO₂ ${Number(r.co2_ppm)}ppm (>1200)`);
+        return causes;
+      }
+
+      // Build sensor→zone index once so we can update zones instantly from SSE
+      async function loadSensorIndex() {
+        try {
+          const res = await fetch(
+            window.FIREGUARD_API_BASE + "/api/map/sensors"
+          );
+          if (!res.ok) throw new Error("fetch sensors failed");
+          const sensors = await res.json();
+          sensors.forEach((s) => {
+            const sid = s.sensor_id || s.id;
+            const zid = s.zone_id || s.zone || s.zoneid || s.zone_uuid;
+            const floor = String(s.floor || s.floor_name || "");
+            if (sid && zid) {
+              const label = s.serial_number || sid;
+              const stype = s.type || "";
+              SENSOR_TO_ZONE.set(sid, {
+                zone_id: zid,
+                floor,
+                label,
+                type: stype,
+              });
+              if (!ZONE_TO_SENSORS.has(zid))
+                ZONE_TO_SENSORS.set(zid, new Set());
+              ZONE_TO_SENSORS.get(zid).add(sid);
+            }
+          });
+        } catch (e) {
+          console.warn("loadSensorIndex", e);
+        }
+      }
+
+      // Recompute derived_state for affected zones based on latest readings
+      function recomputeZonesFromLatest(affectedZoneIds) {
+        if (!affectedZoneIds || affectedZoneIds.size === 0) return;
+        for (const zid of affectedZoneIds) {
+          const sensorSet = ZONE_TO_SENSORS.get(zid);
+          if (!sensorSet) continue;
+          let state = "Normal";
+          for (const sid of sensorSet) {
+            const r = LATEST_BY_SENSOR.get(sid);
+            const rs = computeStateByReading(r);
+            if (rs === "Alarm") {
+              state = "Alarm";
+              break;
+            }
+          }
+          const z = ZONES.find((x) => (x.zone_id || x.id) === zid);
+          if (z) z.derived_state = state;
+        }
+      }
+
       function computeState(zone) {
+        const zid = zone.zone_id || zone.id;
+        // 1) Hard override to avoid flicker during edge transitions
+        if (zid && ZONE_OVERRIDE.has(zid)) return ZONE_OVERRIDE.get(zid);
+        // 2) Live compute from latest readings if we have them
+        if (zid && ZONE_TO_SENSORS.has(zid)) {
+          const sensorSet = ZONE_TO_SENSORS.get(zid);
+          for (const sid of sensorSet) {
+            const r = LATEST_BY_SENSOR.get(sid);
+            if (computeStateByReading(r) === "Alarm") return "Alarm";
+          }
+          // If we had any sensor for this zone and none are alarming, treat as Normal
+          if (sensorSet.size > 0) return "Normal";
+        }
+        // 3) Fallback to backend-derived state if provided
         if (zone.derived_state) return zone.derived_state;
+        // 4) Last resort: use active_alarms count
         if ((Number(zone.active_alarms) || 0) > 0) return "Alarm";
         return "Normal";
+      }
+
+      function renderKpis() {
+        // KPI hiển thị toàn toà nhà hoặc theo tầng đang chọn
+        const all =
+          KPI_SCOPE === "floor"
+            ? ZONES.filter((z) => z.floor === floorSelect.value)
+            : ZONES;
+        const totalSensors = all.reduce((a, r) => {
+          const act = Number(r.active_sensors) || 0;
+          const ina = Number(r.inactive_sensors) || 0;
+          return a + act + ina;
+        }, 0);
+        // Derive KPIs from current UI state (overrides + derived_state)
+        const zoneStates = all.map((z) => computeState(z));
+        const zonesAlarm = zoneStates.filter((s) => s === "Alarm").length;
+        const normalZones = zoneStates.filter((s) => s === "Normal").length;
+        // Warnings: đếm các event đang active có mức độ 1..3
+        const warningZones = (EVENTS || []).filter((e) => {
+          const sev = Number(e.severity) || 0;
+          const floorOk =
+            KPI_SCOPE === "floor" ? e.floor === floorSelect.value : true;
+          return floorOk && sev >= 1 && sev <= 3;
+        }).length;
+
+        document.getElementById("kpiSensors").textContent = totalSensors;
+        document.getElementById("kpiNormal").textContent = normalZones;
+        document.getElementById("kpiWarn").textContent = warningZones;
+        document.getElementById("kpiAlarm").textContent = zonesAlarm;
       }
 
       function renderTable() {
@@ -535,60 +646,111 @@
         );
         zonesTbody.innerHTML = rows
           .map(
-            (z) => `<tr>
-          <td><strong>${
-            z.zone_name || z.code || z.zone_id || "—"
-          }</strong><div class="muted">${z.zone_id || ""}</div></td>
-          <td>${z.floor || ""}</td>
-          <td>${(z.active_sensors || 0) + (z.inactive_sensors || 0)}</td>
-          <td>${badge(computeState(z))}</td>
-          <td class="muted">${fmtTime(
-            z.last_reading_ts || z.last_seen_any
-          )}</td>
-          <td><a class="btn" style="padding:6px 10px" href="/sensor-map.html?floor=${encodeURIComponent(
-            z.floor || ""
-          )}&zone=${encodeURIComponent(z.zone_id || "")}">View on Map</a></td>
-        </tr>`
+            (z) => `
+      <tr>
+        <td>
+          <strong>${z.zone_name || z.code || z.zone_id || "—"}</strong>
+          <div class="muted">${z.zone_id || ""}</div>
+        </td>
+        <td>${z.floor || ""}</td>
+        <td>${(z.active_sensors || 0) + (z.inactive_sensors || 0)}</td>
+        <td>${badge(computeState(z))}</td>
+  <td class="muted">${fmtTime(z.last_reading_ts || z.last_seen_any)}</td>
+        <td>
+       <a class="btn" style="padding:6px 10px"
+         href="sensor-map.html?floor=${encodeURIComponent(
+           z.floor || ""
+         )}&zone=${encodeURIComponent(z.zone_id || "")}">
+            View on Map
+          </a>
+        </td>
+      </tr>`
           )
           .join("");
         renderKpis();
       }
 
       function renderEvents() {
-        eventsBox.innerHTML = EVENTS.map((e) => {
-          const zoneName =
-            (ZONES.find((z) => z.zone_id === e.zone_id) || {}).zone_name ||
-            e.zone_name ||
-            "—";
-          const ts = e.suspected_at || e.created_at || e.ts || null;
-          const sev = e.severity || 1;
-          return `<div class="event"><div class="top"><div><strong>${zoneName}</strong> · <span class="muted">${
-            e.floor || ""
-          }</span></div><div class="sev sev-${sev}">S${sev}</div></div><div class="muted">${fmtTime(
-            ts
-          )}</div><div>${e.summary || e.message || e.msg || ""}</div></div>`;
-        }).join("");
+        eventsBox.innerHTML =
+          EVENTS.map((e) => {
+            const zoneName =
+              (ZONES.find((z) => z.zone_id === e.zone_id) || {}).zone_name ||
+              e.zone_name ||
+              "—";
+            const ts = e.suspected_at || e.created_at || e.ts || null;
+            const sev = e.severity || 1;
+            return `
+        <div class="event">
+          <div class="top">
+            <div>
+              <strong>${zoneName}</strong>
+              · <span class="muted">${e.floor || ""}</span>
+            </div>
+            <div class="sev sev-${sev}">S${sev}</div>
+          </div>
+          <div class="muted">${fmtTime(ts)}</div>
+          <div>${e.summary || e.message || e.msg || ""}</div>
+        </div>`;
+          }).join("") || '<div class="muted">No active events.</div>';
       }
 
-      // initial fetch
       async function loadOverview() {
         try {
-          const r = await fetch(API + "/api/dashboard/overview");
+          const r = await fetch(
+            window.FIREGUARD_API_BASE + "/api/dashboard/overview"
+          );
           if (!r.ok) throw new Error("Fetch failed " + r.status);
           const data = await r.json();
+
+          // Chuẩn hoá ZONES
           ZONES = (data.zoneHealth || []).map((z) => ({
             ...z,
             zone_id: z.zone_id || z.id,
             zone_name: z.zone_name || z.name,
-            // force numeric types to avoid string concatenation in sums
+            // ép kiểu số để tránh cộng chuỗi
             active_sensors: Number(z.active_sensors) || 0,
             inactive_sensors: Number(z.inactive_sensors) || 0,
             active_alarms: Number(z.active_alarms) || 0,
           }));
           EVENTS = data.activeEvents || [];
-          populateFloors();
+
+          // Prime latest readings map if backend provided them
+          if (Array.isArray(data.latestReadings)) {
+            data.latestReadings.forEach((r) => {
+              if (r && r.sensor_id) LATEST_BY_SENSOR.set(r.sensor_id, r);
+            });
+          }
+
+          // If overview already shows Alarm, clear any redundant overrides
+          const alarmSet = new Set(
+            ZONES.filter((z) => (z.derived_state || "") === "Alarm").map(
+              (z) => z.zone_id || z.id
+            )
+          );
+          for (const zid of alarmSet) ZONE_OVERRIDE.delete(zid);
+
+          // Populate floor dropdown
+          const floors = Array.from(
+            new Set(ZONES.map((z) => z.floor).filter(Boolean))
+          );
+          floorSelect.innerHTML = "";
+          floors.forEach((f) => {
+            const o = document.createElement("option");
+            o.value = f;
+            o.textContent = `Floor ${f}`;
+            floorSelect.appendChild(o);
+          });
+
+          // Lấy floor từ URL nếu có
+          const url = new URLSearchParams(location.search);
+          const qFloor = url.get("floor");
+          if (qFloor && floors.includes(qFloor)) floorSelect.value = qFloor;
+          else if (!floorSelect.value && floors[0])
+            floorSelect.value = floors[0];
+
           renderTable();
           renderEvents();
+
           // Nếu SSE chưa kết nối, dùng polling để phát hiện thay đổi và notify
           if (!STREAM_CONNECTED) {
             const nowAlarmZones = new Set(
@@ -624,58 +786,131 @@
             // Khởi tạo snapshot để không spam ngay lần đầu
             setPrevFromData(EVENTS, []);
           }
+
+          // Cập nhật “last updated” KPI (nếu phần tử tồn tại)
+          const upd = document.getElementById("kpiUpdated");
+          if (upd) upd.textContent = new Date().toLocaleTimeString();
+
+          // Update live label when relying on polling (e.g., no SSE)
+          const live = document.getElementById("liveStatus");
+          if (live && !STREAM_CONNECTED) {
+            live.textContent = `Live: polling · Updated: ${new Date().toLocaleTimeString()}`;
+          }
+
+          LAST_OVERVIEW_AT = Date.now();
         } catch (e) {
           console.error("loadOverview", e);
         }
       }
 
-      // SSE realtime updates (optional)
       function startStream() {
         try {
-          const es = new EventSource(API + "/api/dashboard/stream");
+          const es = new EventSource(
+            window.FIREGUARD_API_BASE + "/api/dashboard/stream"
+          );
           const live = document.getElementById("liveStatus");
           if (live) live.textContent = "Live: connecting… · Updated: —";
+
+          es.onopen = () => {
+            STREAM_CONNECTED = true;
+            live && (live.textContent = "Live: connected · Updated: —");
+          };
+          es.onerror = (e) => {
+            console.warn("SSE error", e);
+            STREAM_CONNECTED = false;
+            live &&
+              (live.textContent = "Live: error (auto-retry) · Updated: —");
+          };
           es.onmessage = (ev) => {
             try {
               const d = JSON.parse(ev.data);
-              // stream includes active_events, active_alarms, latest_readings, ts
-              if (Array.isArray(d.active_events)) EVENTS = d.active_events;
-              if (Array.isArray(d.active_alarms)) {
-                /* not used directly */
+              if (Array.isArray(d.active_events)) {
+                EVENTS = d.active_events;
+                renderEvents();
               }
-              // latest_readings contain sensor entries, not zones; keep zone list as-is
-              renderEvents();
+              // Edge-triggered alerts from latest readings without flipping UI back and forth
+              const latest = Array.isArray(d.latest)
+                ? d.latest
+                : Array.isArray(d.latest_readings)
+                ? d.latest_readings
+                : null;
+              let changedOverride = false;
+              if (latest) {
+                latest.forEach((l) => {
+                  if (!l || !l.sensor_id) return;
+                  const prev = LATEST_BY_SENSOR.get(l.sensor_id);
+                  const prevState = computeStateByReading(prev);
+                  const newState = computeStateByReading(l);
+                  LATEST_BY_SENSOR.set(l.sensor_id, l);
+                  const m = SENSOR_TO_ZONE.get(l.sensor_id);
+                  if (!m || !m.zone_id) return;
+                  const zid = m.zone_id;
+                  if (newState === "Alarm" && prevState !== "Alarm") {
+                    // Set override and toast once
+                    if (!ZONE_OVERRIDE.has(zid)) {
+                      ZONE_OVERRIDE.set(zid, "Alarm");
+                      changedOverride = true;
+                      const z = ZONES.find((x) => (x.zone_id || x.id) === zid);
+                      const causes = alarmCauses(l).join(", ");
+                      const sensorMeta = SENSOR_TO_ZONE.get(l.sensor_id) || {};
+                      pushToast(
+                        `ALARM — ${z?.zone_name || zid}`,
+                        `${sensorMeta.label || l.sensor_id} · Tầng ${
+                          z?.floor || ""
+                        } · Vượt ngưỡng: ${causes || fmtReading(l)}`,
+                        "alarm",
+                        { floor: z?.floor || "", zone_id: zid }
+                      );
+                    }
+                    ZONE_COOLDOWN.set(zid, 0);
+                  } else if (newState === "Normal" && prevState === "Alarm") {
+                    // Trở về bình thường: bỏ override ngay và thông báo màu xanh
+                    ZONE_OVERRIDE.delete(zid);
+                    ZONE_COOLDOWN.delete(zid);
+                    changedOverride = true;
+                    const z = ZONES.find((x) => (x.zone_id || x.id) === zid);
+                    const sensorMeta = SENSOR_TO_ZONE.get(l.sensor_id) || {};
+                    pushToast(
+                      `NORMAL — ${z?.zone_name || zid}`,
+                      `${sensorMeta.label || l.sensor_id} · Tầng ${
+                        z?.floor || ""
+                      } · Giá trị hiện tại: ${fmtReading(l)}`,
+                      "ok",
+                      { floor: z?.floor || "", zone_id: zid }
+                    );
+                  }
+                });
+              }
+
               if (!STREAM_READY) {
                 setPrevFromData(d.active_events, d.active_alarms);
                 STREAM_READY = true;
-                STREAM_CONNECTED = true;
               } else {
-                STREAM_CONNECTED = true;
                 checkTransitionsWithStream(d);
               }
+              // cập nhật nhãn thời gian để người dùng thấy SSE đang hoạt động
               if (live) {
                 const ts = new Date().toLocaleTimeString();
                 live.textContent = `Live: connected · Updated: ${ts}`;
               }
+              // Refresh overview (debounced) so KPIs and derived states stay current
+              if (Date.now() - LAST_OVERVIEW_AT > 5000) {
+                loadOverview();
+              }
+
+              if (changedOverride) {
+                renderTable();
+              }
             } catch (err) {
               console.error("sse parse", err);
             }
-          };
-          es.onerror = (e) => {
-            console.warn("SSE error", e);
-            es.close && es.close();
-            if (live)
-              live.textContent = "Live: error (fallback polling) · Updated: —";
-            // Fallback: thỉnh thoảng refresh lại overview
-            STREAM_CONNECTED = false;
-            setInterval(loadOverview, 10000);
           };
         } catch (e) {
           console.warn("SSE not available", e);
         }
       }
 
-      // wire UI
+      // Events
       document
         .getElementById("searchZone")
         .addEventListener("input", renderTable);
@@ -683,10 +918,18 @@
         renderTable();
         history.replaceState({}, "", `?floor=${floorSelect.value}`);
       });
+      document.getElementById("kpiScope").addEventListener("change", (e) => {
+        KPI_SCOPE = e.target.value;
+        renderKpis();
+      });
       document.getElementById("openMap").addEventListener("click", () => {
-        location.href = `/sensor-map.html?floor=${floorSelect.value}`;
+        // Open local map file so it works from file:// as well
+        location.href = `sensor-map.html?floor=${encodeURIComponent(
+          floorSelect.value
+        )}`;
       });
 
+      // Demo buttons (chưa có API action)
       document.getElementById("ackBtn").onclick = () =>
         alert("ACK sent — demo");
       document.getElementById("silenceBtn").onclick = () =>
@@ -694,9 +937,14 @@
       document.getElementById("resetBtn").onclick = () =>
         alert("Reset signal sent — demo");
 
-      // run
-      loadOverview();
-      startStream();
+      // Run
+      // Build sensor index first to enable instant SSE-based updates
+      loadSensorIndex().then(() => {
+        loadOverview();
+        startStream();
+      });
+      // Light polling as a safety net in case SSE doesn't fire changes
+      setInterval(loadOverview, 10000);
     </script>
   </body>
 </html>
