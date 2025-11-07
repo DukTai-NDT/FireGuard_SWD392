@@ -2,16 +2,18 @@
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
-const redis = require("./config/redisConfig");
+// const redis = require("./config/redisConfig"); // Commented out - not needed for UC12 + UC13
 const { analyzeData } = require("./src/controllers/dataProcessing");
 const { confirmFireEvent } = require("./src/controllers/fireDetection");
 
-// const redis = require("./config/redisConfig");
 const app = express();
 const cors = require("cors");
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from public directory
+app.use(express.static("public"));
 
 //  CORS middleware
 
@@ -83,7 +85,7 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 8090;
 
-// Database & Redis bootstrap
+// Database bootstrap (Redis commented out - not needed for UC12 + UC13)
 
 sequelize
   .authenticate()
@@ -91,15 +93,15 @@ sequelize
     console.log("✅ Connected to PostgreSQL successfully");
     return sequelize.sync();
   })
-  .then(async () => {
-    try {
-      const pong = await redis.ping();
-      if (pong === "PONG") console.log("Redis connection: OK");
-    } catch (e) {
-      console.error("Redis connection: FAILED -", e.message);
-    }
-    return sequelize.sync();
-  })
+  // .then(async () => {
+  //   try {
+  //     const pong = await redis.ping();
+  //     if (pong === "PONG") console.log("Redis connection: OK");
+  //   } catch (e) {
+  //     console.error("Redis connection: FAILED -", e.message);
+  //   }
+  //   return sequelize.sync();
+  // })
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 FileGuard server running on http://localhost:${PORT}`);

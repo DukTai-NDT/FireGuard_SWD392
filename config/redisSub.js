@@ -1,5 +1,6 @@
 // config/redisSub.js
-const IORedis = require("ioredis");
+// COMMENTED OUT - Not needed for UC12 + UC13
+// const IORedis = require("ioredis");
 require("dotenv").config();
 
 const {
@@ -11,22 +12,24 @@ const {
 
 let redisSub;
 function getRedisSub() {
-  if (redisSub) return redisSub;
-  redisSub = new IORedis({
-    host: REDIS_HOST,
-    port: Number(REDIS_PORT),
-    password: REDIS_PASSWORD || undefined,
-    tls: REDIS_TLS === "true" ? {} : undefined,
-    retryStrategy(times) {
-      return Math.min(times * 200, 2000);
-    },
-    reconnectOnError(err) {
-      const msg = err?.message || "";
-      return /READONLY|MOVED|CLUSTERDOWN/.test(msg);
-    },
-  });
-  return redisSub;
+  // if (redisSub) return redisSub;
+  // redisSub = new IORedis({
+  //   host: REDIS_HOST,
+  //   port: Number(REDIS_PORT),
+  //   password: REDIS_PASSWORD || undefined,
+  //   tls: REDIS_TLS === "true" ? {} : undefined,
+  //   retryStrategy(times) {
+  //     return Math.min(times * 200, 2000);
+  //   },
+  //   reconnectOnError(err) {
+  //     const msg = err?.message || "";
+  //     return /READONLY|MOVED|CLUSTERDOWN/.test(msg);
+  //   },
+  // });
+  // return redisSub;
+  return null; // Redis disabled for UC12 + UC13
 }
 
-module.exports = getRedisSub();
-module.exports.getRedisSub = getRedisSub;
+// module.exports = getRedisSub();
+// module.exports.getRedisSub = getRedisSub;
+module.exports = null; // Redis disabled for UC12 + UC13

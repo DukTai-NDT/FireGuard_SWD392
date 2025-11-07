@@ -24,7 +24,11 @@ const notifier = new NotificationPublisher({
 const activator = new SoftAlarmActivator({ repos, notifier });
 
 // Subscriber auto-run UC-07 khi UC-06 confirm
-runConfirmedAlarmSubscriber({ redisSub, activator });
+// COMMENTED OUT - Redis disabled for UC12 + UC13
+// runConfirmedAlarmSubscriber({ redisSub, activator });
+if (redisSub) {
+  runConfirmedAlarmSubscriber({ redisSub, activator });
+}
 
 async function buildAlarmController(req, res, next) {
   try {
