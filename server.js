@@ -6,7 +6,11 @@ const redis = require("./config/redisConfig");
 const { analyzeData } = require("./src/controllers/dataProcessing");
 const { confirmFireEvent } = require("./src/controllers/fireDetection");
 
+// const redis = require("./config/redisConfig");
 const app = express();
+const cors = require("cors");
+
+app.use(cors());
 app.use(express.json());
 
 //  CORS middleware
@@ -55,6 +59,8 @@ app.use("/api/sensors", require("./src/routes/sensorsRoutes"));
 app.use("/api/events", require("./src/routes/eventsRoutes"));
 app.use("/api/readings", require("./src/routes/readingsRoutes"));
 app.use("/api/alarms", require("./src/routes/alarmsRoutes"));
+app.use("/api/dashboard", require("./src/routes/dashboardRoutes"));
+app.use("/api/map", require("./src/routes/mapRoutes"));
 
 //  UC04 + UC06 (Data & Fire Detection)
 
@@ -88,10 +94,11 @@ sequelize
   .then(async () => {
     try {
       const pong = await redis.ping();
-      if (pong === "PONG") console.log("✅ Redis connection: OK");
+      if (pong === "PONG") console.log("Redis connection: OK");
     } catch (e) {
-      console.error("❌ Redis connection failed:", e.message);
+      console.error("Redis connection: FAILED -", e.message);
     }
+    return sequelize.sync();
   })
   .then(() => {
     app.listen(PORT, () => {

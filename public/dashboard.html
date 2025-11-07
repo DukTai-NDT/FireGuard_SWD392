@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FireGuard – Building Dashboard</title>
+    <style>
+      /* (kept original styles for brevity) */
+      :root {
+        --bg: #0b0f14;
+        --panel: #111823;
+        --muted: #1a2432;
+        --accent: #2e90fa;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --alarm: #ef4444;
+        --fault: #8b5cf6;
+        --text: #e5eefb;
+        --sub: #95a3b9;
+        --chip: #0f1723;
+        --card: #0d1320;
+        --radius: 16px;
+        --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #0a0f16, #0b1522 60%, #0b0f14);
+        color: var(--text);
+        font: 14px/1.6 system-ui, Segoe UI, Roboto, Helvetica, Arial;
+      }
+      .container {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: radial-gradient(
+          circle at 30% 30%,
+          #2e90fa,
+          #0ea5e9 60%,
+          #0b1322 61%
+        );
+        box-shadow: var(--shadow);
+      }
+      .building-chip {
+        background: var(--chip);
+        border: 1px solid #1e2a3a;
+        color: #c9d7ef;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 600;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .select,
+      .input {
+        appearance: none;
+        background: #0e1726;
+        border: 1px solid #1e2a3a;
+        color: #dbe7ff;
+        padding: 10px 12px;
+        border-radius: 10px;
+        min-width: 160px;
+      }
+      .btn {
+        background: var(--accent);
+        border: none;
+        color: white;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin: 16px 0;
+      }
+      .kpi {
+        background: var(--card);
+        border: 1px solid #182235;
+        border-radius: var(--radius);
+        padding: 16px;
+        box-shadow: var(--shadow);
+      }
+      .kpi h3 {
+        margin: 0 0 6px 0;
+        font-size: 12px;
+        color: var(--sub);
+        text-transform: uppercase;
+      }
+      .kpi .val {
+        font-size: 26px;
+        font-weight: 800;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .alarm {
+        color: var(--alarm);
+      }
+
+      .fault {
+        color: var(--fault);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 16px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid #1a2435;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+      .panel h2 {
+        margin: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid #1f2a3d;
+        background: linear-gradient(180deg, #111b2a, #0e1623);
+        font-size: 14px;
+        color: #b6c6e0;
+        text-transform: uppercase;
+      }
+      .panel .content {
+        padding: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 8px;
+        text-align: left;
+        border-bottom: 1px solid #1f2a3d;
+      }
+      th {
+        color: #a8b6cf;
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      .badge {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .b-ok {
+        background: rgba(34, 197, 94, 0.12);
+        color: #9ae6b4;
+      }
+      .b-warn {
+        background: rgba(245, 158, 11, 0.12);
+        color: #f7d48b;
+      }
+      .b-alarm {
+        background: rgba(239, 68, 68, 0.14);
+        color: #fecaca;
+      }
+      .b-fault {
+        background: rgba(139, 92, 246, 0.14);
+        color: #d9cafe;
+      }
+      .events {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .event {
+        background: #0c1422;
+        border: 1px solid #1a2435;
+        border-radius: 12px;
+        padding: 10px;
+      }
+      /* Toast notifications */
+      .toasts {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        z-index: 9999;
+        pointer-events: none;
+      }
+      .toast {
+        pointer-events: auto;
+        min-width: 280px;
+        max-width: 420px;
+        background: #0c1422;
+        border: 1px solid #1a2435;
+        border-left: 6px solid var(--accent);
+        color: #eaf2ff;
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 12px 14px;
+        animation: slideIn 0.2s ease-out;
+      }
+      .toast h4 {
+        margin: 0 0 6px 0;
+        font-size: 14px;
+      }
+      .toast .msg {
+        color: #b9c9e6;
+        font-size: 13px;
+      }
+      .toast .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+      .toast .btn-ack {
+        background: transparent;
+        color: #cfe1ff;
+        border: 1px solid #28415f;
+        padding: 6px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .toast.warn {
+        border-left-color: var(--warn);
+      }
+      .toast.alarm {
+        border-left-color: var(--alarm);
+      }
+      @keyframes slideIn {
+        from {
+          transform: translateY(-10px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      .event .top {
+        display: flex;
+        justify-content: space-between;
+      }
+      .muted {
+        color: #9fb0ca;
+      }
+      @media (max-width: 1024px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .kpis {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>
+            <h1>FireGuard — Building Dashboard</h1>
+            <div class="muted" id="buildingLabel">
+              Building: <strong>Aurora Tower</strong>
+            </div>
+          </div>
+        </div>
+        <span class="building-chip" id="chip">Single‑Building Mode</span>
+      </div>
+
+      <div class="toolbar">
+        <select class="select" id="floorSelect"></select>
+        <input
+          class="input"
+          id="searchZone"
+          placeholder="Search zone or sensor…"
+        />
+        <button class="btn" id="openMap">View on Map</button>
+        <span id="liveStatus" class="muted" style="margin-left: auto"
+          >Live: connecting… · Updated: —</span
+        >
+      </div>
+
+      <div class="kpis" id="kpis">
+        <div class="kpi">
+          <h3>Total Sensors</h3>
+          <div class="val" id="kpiSensors">—</div>
+        </div>
+        <div class="kpi">
+          <h3>Normal</h3>
+          <div class="val ok" id="kpiNormal">—</div>
+        </div>
+        <div class="kpi">
+          <h3>Warnings</h3>
+          <div class="val warn" id="kpiWarn">—</div>
+        </div>
+        <div class="kpi">
+          <h3>Alarms</h3>
+          <div class="val alarm" id="kpiAlarm">—</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Zones & Live Status</h2>
+          <div class="content">
+            <table id="zonesTbl">
+              <thead>
+                <tr>
+                  <th style="width: 120px">Zone</th>
+                  <th>Floor</th>
+                  <th>Sensors</th>
+                  <th>Status</th>
+                  <th>Last Event</th>
+                  <th style="width: 160px">Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <h2>Recent Events</h2>
+          <div class="content">
+            <div class="events" id="events"></div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="actions" style="margin-top: 12px">
+        <button class="btn ghost" id="ackBtn">Acknowledge</button>
+        <button class="btn ghost" id="silenceBtn">Silence 120s</button>
+        <button class="btn ghost" id="resetBtn">Reset</button>
+      </div>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toasts" class="toasts"></div>
+
+    <script>
+      // API base (same origin when served from server)
+      const API = "";
+
+      // UI elements
+      const floorSelect = document.getElementById("floorSelect");
+      const zonesTbody = document.querySelector("#zonesTbl tbody");
+      const eventsBox = document.getElementById("events");
+
+      // local state
+      let ZONES = [];
+      let EVENTS = [];
+      let STREAM_CONNECTED = false;
+      let STREAM_READY = false; // skip notifications on first payload
+      let PREV_ALARM_ZONES = new Set();
+      let PREV_EVENT_IDS = new Set();
+
+      function idOfEvent(e) {
+        return (
+          e.id ||
+          e.event_id ||
+          `${e.zone_id || "z"}-${e.suspected_at || e.created_at || e.ts || ""}`
+        );
+      }
+
+      function pushToast(title, msg, level = "warn") {
+        const box = document.getElementById("toasts");
+        const div = document.createElement("div");
+        div.className = `toast ${level}`;
+        div.innerHTML = `<div class="row"><h4>${title}</h4><button class="btn-ack">Acknowledge</button></div><div class="msg">${msg}</div>`;
+        div.querySelector(".btn-ack").onclick = () => div.remove();
+        box.appendChild(div);
+        setTimeout(() => div.remove(), 12000);
+        if (level === "alarm") {
+          try {
+            const ctx = new (window.AudioContext ||
+              window.webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = "sine";
+            o.frequency.value = 880;
+            o.connect(g);
+            g.connect(ctx.destination);
+            g.gain.setValueAtTime(0.001, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.05);
+            o.start();
+            setTimeout(() => {
+              g.gain.exponentialRampToValueAtTime(
+                0.0001,
+                ctx.currentTime + 0.25
+              );
+              o.stop(ctx.currentTime + 0.3);
+              ctx.close();
+            }, 260);
+          } catch {}
+        }
+      }
+
+      function setPrevFromData(events, alarms) {
+        PREV_EVENT_IDS = new Set((events || []).map(idOfEvent));
+        PREV_ALARM_ZONES = new Set((alarms || []).map((a) => a.zone_id));
+      }
+
+      function checkTransitionsWithStream(data) {
+        const events = Array.isArray(data.active_events)
+          ? data.active_events
+          : [];
+        const alarms = Array.isArray(data.active_alarms)
+          ? data.active_alarms
+          : [];
+        const nowAlarmZones = new Set(alarms.map((a) => a.zone_id));
+        for (const zid of nowAlarmZones) {
+          if (!PREV_ALARM_ZONES.has(zid)) {
+            const z = ZONES.find((x) => x.zone_id === zid);
+            pushToast(
+              `ALARM — ${z?.zone_name || zid}`,
+              `Floor ${z?.floor || ""}: Active alarm triggered`,
+              "alarm"
+            );
+          }
+        }
+        PREV_ALARM_ZONES = nowAlarmZones;
+        for (const e of events) {
+          const key = idOfEvent(e);
+          const sev = Number(e.severity) || 0;
+          if (!PREV_EVENT_IDS.has(key) && sev >= 1 && sev <= 3) {
+            pushToast(
+              `Warning — ${e.zone_name || ""}`,
+              `${e.summary || e.message || ""} (S${sev})`,
+              "warn"
+            );
+          }
+        }
+        PREV_EVENT_IDS = new Set(events.map(idOfEvent));
+      }
+
+      // populate floors from zone data (will be replaced after fetch)
+      function populateFloors() {
+        const floors = Array.from(
+          new Set(ZONES.map((z) => z.floor).filter(Boolean))
+        );
+        floorSelect.innerHTML = "";
+        floors.forEach((f) => {
+          const o = document.createElement("option");
+          o.value = f;
+          o.textContent = `Floor ${f}`;
+          floorSelect.appendChild(o);
+        });
+        if (!floorSelect.value && floors[0]) floorSelect.value = floors[0];
+      }
+
+      function fmtTime(ts) {
+        if (!ts) return "—";
+        return new Date(ts).toLocaleString();
+      }
+
+      function renderKpis() {
+        // KPIs at building level (not affected by current grid filter)
+        const all = ZONES;
+        const total = all.reduce((a, r) => {
+          const act = Number(r.active_sensors) || 0;
+          const ina = Number(r.inactive_sensors) || 0;
+          return a + act + ina;
+        }, 0);
+        const alarm = all.reduce(
+          (a, r) => a + (Number(r.active_alarms) || 0),
+          0
+        );
+        const normal = all.filter(
+          (r) => (Number(r.active_alarms) || 0) === 0
+        ).length;
+        const warn = all.filter(
+          (r) =>
+            (Number(r.active_alarms) || 0) > 0 &&
+            (Number(r.active_alarms) || 0) < 2
+        ).length;
+        document.getElementById("kpiSensors").textContent = total;
+        document.getElementById("kpiNormal").textContent = normal;
+        document.getElementById("kpiWarn").textContent = warn;
+        document.getElementById("kpiAlarm").textContent = alarm;
+      }
+
+      function badge(state) {
+        const map = {
+          Normal: "b-ok",
+          Warning: "b-warn",
+          Alarm: "b-alarm",
+          Fault: "b-fault",
+        };
+        return `<span class="badge ${map[state] || ""}">${state}</span>`;
+      }
+
+      function computeState(zone) {
+        if (zone.derived_state) return zone.derived_state;
+        if ((Number(zone.active_alarms) || 0) > 0) return "Alarm";
+        return "Normal";
+      }
+
+      function renderTable() {
+        const q = document.getElementById("searchZone").value.toLowerCase();
+        const f = floorSelect.value;
+        const rows = ZONES.filter(
+          (z) =>
+            (f ? z.floor === f : true) &&
+            (q ? (z.zone_name || "").toLowerCase().includes(q) : true)
+        );
+        zonesTbody.innerHTML = rows
+          .map(
+            (z) => `<tr>
+          <td><strong>${
+            z.zone_name || z.code || z.zone_id || "—"
+          }</strong><div class="muted">${z.zone_id || ""}</div></td>
+          <td>${z.floor || ""}</td>
+          <td>${(z.active_sensors || 0) + (z.inactive_sensors || 0)}</td>
+          <td>${badge(computeState(z))}</td>
+          <td class="muted">${fmtTime(
+            z.last_reading_ts || z.last_seen_any
+          )}</td>
+          <td><a class="btn" style="padding:6px 10px" href="/sensor-map.html?floor=${encodeURIComponent(
+            z.floor || ""
+          )}&zone=${encodeURIComponent(z.zone_id || "")}">View on Map</a></td>
+        </tr>`
+          )
+          .join("");
+        renderKpis();
+      }
+
+      function renderEvents() {
+        eventsBox.innerHTML = EVENTS.map((e) => {
+          const zoneName =
+            (ZONES.find((z) => z.zone_id === e.zone_id) || {}).zone_name ||
+            e.zone_name ||
+            "—";
+          const ts = e.suspected_at || e.created_at || e.ts || null;
+          const sev = e.severity || 1;
+          return `<div class="event"><div class="top"><div><strong>${zoneName}</strong> · <span class="muted">${
+            e.floor || ""
+          }</span></div><div class="sev sev-${sev}">S${sev}</div></div><div class="muted">${fmtTime(
+            ts
+          )}</div><div>${e.summary || e.message || e.msg || ""}</div></div>`;
+        }).join("");
+      }
+
+      // initial fetch
+      async function loadOverview() {
+        try {
+          const r = await fetch(API + "/api/dashboard/overview");
+          if (!r.ok) throw new Error("Fetch failed " + r.status);
+          const data = await r.json();
+          ZONES = (data.zoneHealth || []).map((z) => ({
+            ...z,
+            zone_id: z.zone_id || z.id,
+            zone_name: z.zone_name || z.name,
+            // force numeric types to avoid string concatenation in sums
+            active_sensors: Number(z.active_sensors) || 0,
+            inactive_sensors: Number(z.inactive_sensors) || 0,
+            active_alarms: Number(z.active_alarms) || 0,
+          }));
+          EVENTS = data.activeEvents || [];
+          populateFloors();
+          renderTable();
+          renderEvents();
+          // Nếu SSE chưa kết nối, dùng polling để phát hiện thay đổi và notify
+          if (!STREAM_CONNECTED) {
+            const nowAlarmZones = new Set(
+              ZONES.filter((z) => (Number(z.active_alarms) || 0) > 0).map(
+                (z) => z.zone_id
+              )
+            );
+            for (const zid of nowAlarmZones) {
+              if (!PREV_ALARM_ZONES.has(zid)) {
+                const z = ZONES.find((x) => x.zone_id === zid);
+                pushToast(
+                  `ALARM — ${z?.zone_name || zid}`,
+                  `Floor ${z?.floor || ""}: Active alarm triggered`,
+                  "alarm"
+                );
+              }
+            }
+            PREV_ALARM_ZONES = nowAlarmZones;
+            const nowEventIds = new Set((EVENTS || []).map(idOfEvent));
+            for (const e of EVENTS) {
+              const sev = Number(e.severity) || 0;
+              const key = idOfEvent(e);
+              if (!PREV_EVENT_IDS.has(key) && sev >= 1 && sev <= 3) {
+                pushToast(
+                  `Warning — ${e.zone_name || ""}`,
+                  `${e.summary || e.message || ""} (S${sev})`,
+                  "warn"
+                );
+              }
+            }
+            PREV_EVENT_IDS = nowEventIds;
+          } else if (!STREAM_READY) {
+            // Khởi tạo snapshot để không spam ngay lần đầu
+            setPrevFromData(EVENTS, []);
+          }
+        } catch (e) {
+          console.error("loadOverview", e);
+        }
+      }
+
+      // SSE realtime updates (optional)
+      function startStream() {
+        try {
+          const es = new EventSource(API + "/api/dashboard/stream");
+          const live = document.getElementById("liveStatus");
+          if (live) live.textContent = "Live: connecting… · Updated: —";
+          es.onmessage = (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              // stream includes active_events, active_alarms, latest_readings, ts
+              if (Array.isArray(d.active_events)) EVENTS = d.active_events;
+              if (Array.isArray(d.active_alarms)) {
+                /* not used directly */
+              }
+              // latest_readings contain sensor entries, not zones; keep zone list as-is
+              renderEvents();
+              if (!STREAM_READY) {
+                setPrevFromData(d.active_events, d.active_alarms);
+                STREAM_READY = true;
+                STREAM_CONNECTED = true;
+              } else {
+                STREAM_CONNECTED = true;
+                checkTransitionsWithStream(d);
+              }
+              if (live) {
+                const ts = new Date().toLocaleTimeString();
+                live.textContent = `Live: connected · Updated: ${ts}`;
+              }
+            } catch (err) {
+              console.error("sse parse", err);
+            }
+          };
+          es.onerror = (e) => {
+            console.warn("SSE error", e);
+            es.close && es.close();
+            if (live)
+              live.textContent = "Live: error (fallback polling) · Updated: —";
+            // Fallback: thỉnh thoảng refresh lại overview
+            STREAM_CONNECTED = false;
+            setInterval(loadOverview, 10000);
+          };
+        } catch (e) {
+          console.warn("SSE not available", e);
+        }
+      }
+
+      // wire UI
+      document
+        .getElementById("searchZone")
+        .addEventListener("input", renderTable);
+      floorSelect.addEventListener("change", () => {
+        renderTable();
+        history.replaceState({}, "", `?floor=${floorSelect.value}`);
+      });
+      document.getElementById("openMap").addEventListener("click", () => {
+        location.href = `/sensor-map.html?floor=${floorSelect.value}`;
+      });
+
+      document.getElementById("ackBtn").onclick = () =>
+        alert("ACK sent — demo");
+      document.getElementById("silenceBtn").onclick = () =>
+        alert("Silenced for 120s — demo");
+      document.getElementById("resetBtn").onclick = () =>
+        alert("Reset signal sent — demo");
+
+      // run
+      loadOverview();
+      startStream();
+    </script>
+  </body>
+</html>
