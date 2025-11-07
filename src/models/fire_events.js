@@ -3,7 +3,7 @@ module.exports = (sequelize, DataTypes) => {
   const FireEvent = sequelize.define(
     "FireEvent",
     {
-      id: { type: DataTypes.UUID, primaryKey: true, defaultValue: null },
+      id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
       zone_id: { type: DataTypes.UUID, allowNull: false },
       suspected_at: { type: DataTypes.DATE, allowNull: false },
       confirmed_at: { type: DataTypes.DATE },

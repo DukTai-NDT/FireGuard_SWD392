@@ -2,6 +2,7 @@
 const express = require("express");
 const http = require("http");
 const { sequelize } = require("./src/models");
+
 const redis = require("./config/redisConfig");
 const { analyzeData } = require("./src/controllers/dataProcessing");
 const { confirmFireEvent } = require("./src/controllers/fireDetection");
@@ -9,6 +10,15 @@ const { confirmFireEvent } = require("./src/controllers/fireDetection");
 // const redis = require("./config/redisConfig");
 const app = express();
 const cors = require("cors");
+
+app.use(
+  cors({
+    origin: "*", // Cho phép tất cả (an toàn cho 127.0.0.1:5500)
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Phải cho phép PUT
+  })
+);
+
+// const redis = require("./config/redisConfig");
 
 app.use(cors());
 app.use(express.json());
@@ -59,6 +69,7 @@ app.use("/api/sensors", require("./src/routes/sensorsRoutes"));
 app.use("/api/events", require("./src/routes/eventsRoutes"));
 app.use("/api/readings", require("./src/routes/readingsRoutes"));
 app.use("/api/alarms", require("./src/routes/alarmsRoutes"));
+
 app.use("/api/dashboard", require("./src/routes/dashboardRoutes"));
 app.use("/api/map", require("./src/routes/mapRoutes"));
 
@@ -68,7 +79,8 @@ app.post("/api/data/analyze", analyzeData);
 app.post("/api/fire/detect", confirmFireEvent);
 
 //  Error handling
-
+app.use("/api/logs", require("./src/routes/logsRoutes"));
+app.use("/api/timeline", require("./src/routes/timeline"));
 app.use((error, req, res, next) => {
   const status = error.statusCode || 500;
   res.status(status).json({
@@ -88,7 +100,10 @@ const PORT = process.env.PORT || 8090;
 sequelize
   .authenticate()
   .then(() => {
-    console.log("✅ Connected to PostgreSQL successfully");
+    console.log("Connected to PostgreSQL successfully");
+    console.log("📘 Connected DB:", sequelize.config.database);
+    console.log("👤 User:", sequelize.config.username);
+    console.log("🖥️ Host:", sequelize.config.host);
     return sequelize.sync();
   })
   .then(async () => {
